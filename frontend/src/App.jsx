@@ -210,13 +210,13 @@ export default function App() {
                     <ChatMessage role="assistant" content={streamingText} isStreaming={isLoading} />
                   )}
 
-                  {/* Tool activity */}
-                  {activeTools.length > 0 && (
-                    <div className="flex gap-3">
-                      <div className="flex-shrink-0 w-8" />
-                      <ToolStatus tools={activeTools} />
-                    </div>
-                  )}
+                    {/* Tool activity — shown whenever loading OR tools are active */}
+                    {isLoading && (
+                      <div className="flex gap-3">
+                        <div className="flex-shrink-0 w-8" />
+                        <ToolStatus tools={activeTools} isLoading={isLoading} />
+                      </div>
+                    )}
 
                   {/* Pending itinerary (during streaming, before finalized) */}
                   {pendingItinerary && (
