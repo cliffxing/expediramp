@@ -44,6 +44,7 @@ export async function sendMessageStream({ message, history, conversationId, toke
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let doneReceived = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -62,11 +63,38 @@ export async function sendMessageStream({ message, history, conversationId, toke
           case 'tool_start': onToolStart?.(event.data); break;
           case 'tool_result': onToolResult?.(event.data); break;
           case 'itinerary': onItinerary?.(event.data); break;
-          case 'done': onDone?.(event.data); break;
+          case 'done':
+            doneReceived = true;
+            onDone?.(event.data);
+            break;
           case 'error': onError?.(event.data); break;
         }
       } catch { /* skip malformed lines */ }
     }
+  }
+
+  // Process any remaining data in the buffer
+  if (buffer.startsWith('data: ')) {
+    try {
+      const event = JSON.parse(buffer.slice(6));
+      switch (event.type) {
+        case 'token': onToken?.(event.data); break;
+        case 'tool_start': onToolStart?.(event.data); break;
+        case 'tool_result': onToolResult?.(event.data); break;
+        case 'itinerary': onItinerary?.(event.data); break;
+        case 'done':
+          doneReceived = true;
+          onDone?.(event.data);
+          break;
+        case 'error': onError?.(event.data); break;
+      }
+    } catch { /* skip malformed line */ }
+  }
+
+  // Safety net: if stream ended without a done event, fire onDone
+  // so the UI doesn't get permanently stuck in loading state
+  if (!doneReceived) {
+    onDone?.({});
   }
 }
 

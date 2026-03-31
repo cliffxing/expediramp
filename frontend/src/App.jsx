@@ -17,7 +17,8 @@ export default function App() {
   const [activeTools, setActiveTools] = useState([]);
   const [streamingText, setStreamingText] = useState('');
   const [showAuth, setShowAuth] = useState(false);
-  const [currentItinerary, setCurrentItinerary] = useState(null);
+  // Pending itinerary shown during streaming — merged into messages on done
+  const [pendingItinerary, setPendingItinerary] = useState(null);
   const [conversationId, setConversationId] = useState(null);
   const [loadingConvo, setLoadingConvo] = useState(false);
   const scrollRef = useRef(null);
@@ -30,11 +31,11 @@ export default function App() {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, streamingText, currentItinerary, scrollToBottom]);
+  }, [messages, streamingText, pendingItinerary, scrollToBottom]);
 
   const handleNewChat = () => {
     setMessages([]);
-    setCurrentItinerary(null);
+    setPendingItinerary(null);
     setStreamingText('');
     setActiveTools([]);
     setConversationId(null);
@@ -43,7 +44,7 @@ export default function App() {
   const handleSelectConversation = async (convo) => {
     setLoadingConvo(true);
     setConversationId(convo.id);
-    setCurrentItinerary(null);
+    setPendingItinerary(null);
     setMessages([]);
     try {
       const data = await getConversationMessages(token, convo.id);
@@ -53,9 +54,6 @@ export default function App() {
         itinerary: m.metadata?.itinerary || null,
       }));
       setMessages(loaded);
-      // Restore last itinerary if any
-      const lastWithItinerary = [...loaded].reverse().find((m) => m.itinerary);
-      if (lastWithItinerary) setCurrentItinerary(lastWithItinerary.itinerary);
     } catch (e) {
       console.error('Failed to load conversation:', e);
     } finally {
@@ -69,6 +67,7 @@ export default function App() {
     setIsLoading(true);
     setStreamingText('');
     setActiveTools([]);
+    setPendingItinerary(null);
 
     // Create conversation on first message if signed in
     let activeConvoId = conversationId;
@@ -82,8 +81,25 @@ export default function App() {
       }
     }
 
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    // Build history — include itinerary context so the agent knows
+    // what was previously presented and can iterate on it.
+    const history = messages.map((m) => {
+      if (m.role === 'assistant' && m.itinerary) {
+        const itin = m.itinerary;
+        const itemSummaries = (itin.items || []).map((item) => {
+          if (item.type === 'flight') return `Flight: ${item.title} — $${item.cost}`;
+          if (item.type === 'hotel') return `Hotel: ${item.title} — $${item.cost}`;
+          return `${item.type}: ${item.title} — $${item.cost}`;
+        });
+        const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
+        const itineraryContext = `\n\n[ITINERARY PRESENTED: ${itin.trip_title || 'Trip'} | ${itin.start_date} to ${itin.end_date} | ${itin.travelers || 1} traveler(s) | Items: ${itemSummaries.join('; ')} | Total: $${totalCost}]`;
+        return { role: m.role, content: (m.content || '') + itineraryContext };
+      }
+      return { role: m.role, content: m.content };
+    });
+
     let accumulatedText = '';
+    let receivedItinerary = null;
 
     try {
       await sendMessageStream({
@@ -98,15 +114,22 @@ export default function App() {
         onToolStart: (data) => setActiveTools((prev) => [...prev, data.tool]),
         onToolResult: (data) => setActiveTools((prev) => prev.filter((t) => t !== data.tool)),
         onItinerary: (data) => {
-          setCurrentItinerary(data);
+          receivedItinerary = data;
+          setPendingItinerary(data);
           setActiveTools([]);
         },
         onDone: () => {
-          if (accumulatedText.trim()) {
-            setMessages((prev) => [...prev, { role: 'assistant', content: accumulatedText }]);
+          // Always add an assistant message — attach itinerary if one was received
+          const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
+          if (receivedItinerary) {
+            assistantMsg.itinerary = receivedItinerary;
+          }
+          if (accumulatedText.trim() || receivedItinerary) {
+            setMessages((prev) => [...prev, assistantMsg]);
           }
           setStreamingText('');
           setActiveTools([]);
+          setPendingItinerary(null);
           setIsLoading(false);
         },
         onError: (err) => {
@@ -116,20 +139,32 @@ export default function App() {
           ]);
           setStreamingText('');
           setActiveTools([]);
+          setPendingItinerary(null);
           setIsLoading(false);
         },
       });
     } catch (e) {
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: 'Connection error. Please check that the backend is running and try again.' },
-      ]);
-      setStreamingText('');
-      setIsLoading(false);
+      // Failsafe: if stream ends without done/error, clean up state
+      if (isLoading) {
+        if (accumulatedText.trim() || receivedItinerary) {
+          const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
+          if (receivedItinerary) assistantMsg.itinerary = receivedItinerary;
+          setMessages((prev) => [...prev, assistantMsg]);
+        } else {
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: 'Connection error. Please check that the backend is running and try again.' },
+          ]);
+        }
+        setStreamingText('');
+        setPendingItinerary(null);
+        setIsLoading(false);
+      }
     }
   };
 
-  const hasMessages = messages.length > 0 || streamingText || currentItinerary;
+  const hasMessages = messages.length > 0 || streamingText || pendingItinerary;
+  const latestItinerary = [...messages].reverse().find((m) => m.itinerary)?.itinerary || null;
 
   return (
     <div className="flex flex-col h-screen">
@@ -158,21 +193,35 @@ export default function App() {
                 <WelcomeScreen onSuggestionClick={handleSend} />
               ) : (
                 <div className="space-y-5">
+                  {/* Chat messages — itineraries rendered inline */}
                   {messages.map((msg, idx) => (
-                    <ChatMessage key={idx} role={msg.role} content={msg.content} />
+                    <React.Fragment key={idx}>
+                      <ChatMessage role={msg.role} content={msg.content} />
+                      {msg.itinerary && (
+                        <div className="mt-4 mb-2">
+                          <ItineraryTimeline itinerary={msg.itinerary} />
+                        </div>
+                      )}
+                    </React.Fragment>
                   ))}
+
+                  {/* Streaming response */}
                   {streamingText && (
                     <ChatMessage role="assistant" content={streamingText} isStreaming={isLoading} />
                   )}
+
+                  {/* Tool activity */}
                   {activeTools.length > 0 && (
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-8" />
                       <ToolStatus tools={activeTools} />
                     </div>
                   )}
-                  {currentItinerary && (
-                    <div className="mt-6">
-                      <ItineraryTimeline itinerary={currentItinerary} />
+
+                  {/* Pending itinerary (during streaming, before finalized) */}
+                  {pendingItinerary && (
+                    <div className="mt-4 mb-2">
+                      <ItineraryTimeline itinerary={pendingItinerary} />
                     </div>
                   )}
                 </div>
@@ -186,7 +235,7 @@ export default function App() {
                 onSend={handleSend}
                 disabled={isLoading}
                 placeholder={
-                  currentItinerary
+                  latestItinerary
                     ? "Refine your trip — e.g., 'I want a nicer hotel' or 'Avoid DXB layovers'"
                     : "Describe your dream trip…"
                 }
