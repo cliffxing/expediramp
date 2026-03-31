@@ -1,0 +1,106 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-ramp-bg text-ramp-text font-sans;
+    font-feature-settings: 'ss01' on, 'cv01' on;
+  }
+
+  ::selection {
+    background-color: #1A1A18;
+    color: #FAFAF8;
+  }
+
+  /* Ramp-style scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #D4D4C8;
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #9C9C91;
+  }
+}
+
+@layer components {
+  .ramp-card {
+    @apply bg-ramp-surface border border-ramp-border rounded-ramp shadow-ramp;
+  }
+
+  .ramp-card-elevated {
+    @apply bg-ramp-surface border border-ramp-border rounded-ramp shadow-ramp-md;
+  }
+
+  .ramp-btn-primary {
+    @apply inline-flex items-center justify-center px-4 py-2.5
+           bg-ramp-accent text-white text-sm font-medium
+           rounded-ramp-sm transition-all duration-150
+           hover:bg-ramp-accent-hover active:scale-[0.98]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ramp-accent focus-visible:ring-offset-2;
+  }
+
+  .ramp-btn-secondary {
+    @apply inline-flex items-center justify-center px-4 py-2.5
+           bg-ramp-surface border border-ramp-border text-ramp-text text-sm font-medium
+           rounded-ramp-sm transition-all duration-150
+           hover:bg-ramp-surface-alt active:scale-[0.98]
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ramp-accent focus-visible:ring-offset-2;
+  }
+
+  .ramp-input {
+    @apply w-full px-3.5 py-2.5 text-sm
+           bg-ramp-surface border border-ramp-border rounded-ramp-sm
+           placeholder:text-ramp-text-tertiary
+           transition-all duration-150
+           focus:outline-none focus:border-ramp-accent focus:ring-1 focus:ring-ramp-accent;
+  }
+
+  .ramp-badge {
+    @apply inline-flex items-center px-2 py-0.5 text-2xs font-medium rounded-full;
+  }
+
+  .ramp-badge-green {
+    @apply ramp-badge bg-ramp-green-light text-ramp-green;
+  }
+
+  .ramp-badge-amber {
+    @apply ramp-badge bg-ramp-amber-light text-ramp-amber;
+  }
+
+  .ramp-badge-blue {
+    @apply ramp-badge bg-ramp-blue-light text-ramp-blue;
+  }
+
+  .ramp-badge-neutral {
+    @apply ramp-badge bg-ramp-surface-alt text-ramp-text-secondary;
+  }
+
+  /* Timeline connector line */
+  .timeline-line {
+    @apply absolute left-5 top-12 bottom-0 w-px bg-ramp-border;
+  }
+
+  /* Typing indicator */
+  .typing-dot {
+    @apply w-1.5 h-1.5 rounded-full bg-ramp-text-tertiary animate-pulse-dot;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
