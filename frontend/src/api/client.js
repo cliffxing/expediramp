@@ -1,4 +1,6 @@
-const API_BASE = '/api';
+// Use VITE_API_URL if set (e.g. http://localhost:5000/api), otherwise fall back
+// to the relative /api path which Vite's dev-server proxy will forward to Flask.
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 function getHeaders(token) {
   const h = { 'Content-Type': 'application/json' };

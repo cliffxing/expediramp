@@ -1,201 +1,222 @@
-# ExpediRamp
+# ExpediRamp — Modern Travel Runs on ExpediRamp
 
-**Modern Travel Runs on ExpediRamp**
-
-An AI-powered travel planning agent. Describe your trip in plain English and get a complete itinerary with flights, hotels, transportation, and activities — all presented in a beautiful vertical timeline with costs, photos, and booking links.
-
-![ExpediRamp](https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800)
+AI-powered travel agent that plans complete trip itineraries from plain-text descriptions. Searches real flights, hotels, and transportation, then presents everything in a visual timeline with photos, prices, and booking links.
 
 ## Architecture
 
 ```
-┌─────────────────────┐     ┌──────────────────────────┐     ┌───────────────┐
-│   React Frontend    │────▶│    Flask Backend API      │────▶│   Supabase    │
-│   (Vite + Tailwind) │◀────│   (OpenAI Agent Loop)     │◀────│   (DB + Auth) │
-└─────────────────────┘     └──────────────────────────┘     └───────────────┘
-                             │
-                             ├── Flight Search Service (mock / Amadeus)
-                             ├── Hotel Search Service  (mock / Booking.com)
-                             ├── Car Rental Service    (mock / Kayak)
-                             └── Transit Service       (mock / Rome2Rio)
+frontend/  (React + Vite + Tailwind)
+  └── Chat UI → streams SSE from backend
+backend/   (Flask + OpenAI function-calling)
+  └── Travel agent loop → calls Amadeus / SerpAPI → builds itinerary
+database/  (Supabase — Postgres + Auth)
+  └── Conversations, messages, saved itineraries
 ```
 
-### Tech Stack
+---
 
-| Layer       | Technology           | Purpose                          |
-|-------------|---------------------|----------------------------------|
-| Frontend    | React 19 + Vite     | SPA with SSE streaming           |
-| Styling     | Tailwind CSS        | Ramp-inspired design system      |
-| Backend     | Flask               | REST API + SSE streaming         |
-| AI Agent    | OpenAI GPT-4o       | Function calling for travel tools|
-| Database    | Supabase (Postgres) | Conversations, messages, trips   |
-| Auth        | Supabase Auth       | Email/password authentication    |
+## 1. API Keys — What You Need
 
-## Quick Start
+### Required
 
-### 1. Prerequisites
+| Service | Free tier | Sign-up |
+|---------|-----------|---------|
+| **OpenAI** | Pay-as-you-go | https://platform.openai.com/api-keys |
 
-- **Python 3.11+**
-- **Node.js 18+**
-- **OpenAI API key** — [Get one here](https://platform.openai.com/api-keys)
-- **Supabase project** — [Create one here](https://supabase.com/dashboard)
+### Flight & Hotel Data (pick at least one)
 
-### 2. Supabase Setup
+| Service | Free tier | Sign-up |
+|---------|-----------|---------|
+| **Amadeus Self-Service** | 500 calls/month (test env) | https://developers.amadeus.com |
+| **SerpAPI** | 100 searches/month | https://serpapi.com |
 
-1. Create a new Supabase project
-2. Go to **SQL Editor** and run the schema from `database/schema.sql`
-3. Copy your project URL, anon key, and service role key
+> **Recommendation**: Start with **Amadeus test environment** (free, no credit card). It returns sandbox data that looks realistic. When ready for production data, apply for Amadeus production access or add a SerpAPI key.
 
-### 3. Environment Variables
+### Optional
 
-```bash
-cp .env.example .env
-```
+| Service | Purpose |
+|---------|---------|
+| **Supabase** | Auth + conversation history persistence. Without it the app works fine but nothing is saved between sessions. |
 
-Edit `.env` with your keys:
+---
 
-```env
-OPENAI_API_KEY=sk-...
-SUPABASE_URL=https://xxxxx.supabase.co
-SUPABASE_ANON_KEY=eyJ...
-SUPABASE_SERVICE_ROLE_KEY=eyJ...
-FLASK_SECRET_KEY=some-random-secret-string
-```
+## 2. Amadeus Setup (Recommended — Free)
 
-### 4. Backend Setup
+1. Go to https://developers.amadeus.com and create a free account.
+2. In the dashboard, click **My Self-Service Workspace → Create New App**.
+3. Name it anything (e.g., "ExpediRamp").
+4. Copy the **API Key** and **API Secret**.
+5. Add them to your `.env`:
+   ```
+   AMADEUS_CLIENT_ID=<your API Key>
+   AMADEUS_CLIENT_SECRET=<your API Secret>
+   AMADEUS_ENV=test
+   ```
+6. The `test` environment uses Amadeus sandbox data — real airline/hotel names but synthetic prices. Switch to `production` once you have Amadeus production approval for live data.
+
+### What Amadeus provides
+- **Flight Offers Search v2** — real airline routes, segments, layovers, cabin classes, prices
+- **Hotel Search v3** — hotels by city, room availability, nightly rates
+
+---
+
+## 3. SerpAPI Setup (Alternative / Fallback)
+
+If you prefer Google Flights and Google Hotels results, or want a fallback:
+
+1. Go to https://serpapi.com and sign up (100 free searches/month).
+2. Copy your API key from the dashboard.
+3. Add to `.env`:
+   ```
+   SERPAPI_KEY=<your key>
+   ```
+
+The backend tries **Amadeus first**, then falls back to **SerpAPI** if Amadeus fails or isn't configured.
+
+---
+
+## 4. Supabase Setup (Optional — for Auth & Persistence)
+
+1. Go to https://supabase.com and create a free project.
+2. In **Project Settings → API**, copy:
+   - Project URL → `SUPABASE_URL`
+   - `anon` public key → `SUPABASE_ANON_KEY`
+   - `service_role` secret key → `SUPABASE_SERVICE_ROLE_KEY`
+3. Run the schema in `database/schema.sql` via the Supabase SQL Editor.
+4. Add to `.env`:
+   ```
+   SUPABASE_URL=https://your-project.supabase.co
+   SUPABASE_ANON_KEY=your-anon-key
+   SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+   ```
+
+Without Supabase, the app runs fully — you just can't sign in or save conversation history.
+
+---
+
+## 5. Running the App
+
+### Prerequisites
+- Python 3.11+
+- Node.js 18+
+- npm or yarn
+
+### Backend
 
 ```bash
 cd backend
+
+# Create a virtual environment (recommended)
 python -m venv venv
-source venv/bin/activate    # Windows: venv\Scripts\activate
+source venv/bin/activate   # Windows: venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Create .env from template
+cp ../.env.example .env
+# → Edit .env and fill in your API keys
+
+# Run the server
 python app.py
+# Server starts on http://localhost:5001
 ```
 
-The API server starts on `http://localhost:5000`.
-
-### 5. Frontend Setup
+### Frontend
 
 ```bash
 cd frontend
+
+# Install dependencies
 npm install
+
+# Run the dev server
 npm run dev
+# Opens on http://localhost:5173
+# API calls are proxied to localhost:5001 automatically
 ```
 
-The dev server starts on `http://localhost:5173` with automatic proxy to the backend.
+### Open in browser
+Navigate to **http://localhost:5173** and start describing your trip.
 
-### 6. Open the App
+---
 
-Navigate to **http://localhost:5173** and start planning trips!
+## 6. Configuration Reference
 
-## Features
+All config lives in a single `.env` file in the `backend/` directory:
 
-### Core
-- **Natural language trip planning** — Describe what you want; the agent figures out the rest
-- **Multi-tool AI agent** — Searches flights, hotels, car rentals, and transit in parallel
-- **Iterative refinement** — "I don't want to layover in DXB", "Find a nicer hotel", "Add Osaka"
-- **Abuse filtering** — Non-travel requests are politely declined
+```env
+# ─── Required ───────────────────────────────────────
+OPENAI_API_KEY=sk-...
 
-### Itinerary Timeline
-- **Vertical timeline layout** — Chronological view of every trip component
-- **Flight cards** — Airline logos, segment details, layover info, nonstop badges
-- **Hotel cards** — Photos, star ratings, amenity tags, cancellation policies
-- **Car rental cards** — Vehicle photos, feature lists, daily/total pricing
-- **Transit cards** — Local pass options with descriptions and links
-- **Cost breakdown** — Running total with per-item costs and trip summary
+# ─── Flight & Hotel APIs (need at least one) ───────
+AMADEUS_CLIENT_ID=...
+AMADEUS_CLIENT_SECRET=...
+AMADEUS_ENV=test              # "test" or "production"
 
-### UX
-- **Streaming responses** — Real-time token-by-token display via SSE
-- **Tool activity indicators** — See what the agent is searching in real-time
-- **Ramp-inspired design** — Clean, minimal, professional aesthetic
-- **Responsive** — Works on desktop and mobile
-- **Auth** — Optional Supabase login to save conversations
+SERPAPI_KEY=...                # optional fallback
 
-## Project Structure
+# ─── Supabase (optional) ───────────────────────────
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
 
-```
-expediramp/
-├── .env.example                    # Environment template
-├── database/
-│   └── schema.sql                  # Supabase schema (run in SQL Editor)
-├── backend/
-│   ├── app.py                      # Flask entry point
-│   ├── config.py                   # Environment config
-│   ├── requirements.txt
-│   ├── agents/
-│   │   ├── tools.py                # OpenAI tool definitions + system prompt
-│   │   └── travel_agent.py         # Agent loop (streaming + non-streaming)
-│   ├── routes/
-│   │   ├── chat.py                 # Chat API (POST /api/chat/stream)
-│   │   └── auth.py                 # Auth API
-│   └── services/
-│       ├── supabase_client.py      # DB + auth helpers
-│       ├── flight_service.py       # Flight search (mock)
-│       ├── hotel_service.py        # Hotel search (mock)
-│       └── car_service.py          # Car rental + transit (mock)
-└── frontend/
-    ├── package.json
-    ├── vite.config.js
-    ├── tailwind.config.js
-    ├── postcss.config.js
-    ├── index.html
-    └── src/
-        ├── main.jsx
-        ├── App.jsx                 # Main app shell
-        ├── index.css               # Tailwind + Ramp design tokens
-        ├── api/
-        │   └── client.js           # API client with SSE streaming
-        ├── context/
-        │   └── AuthContext.jsx      # Auth state management
-        └── components/
-            ├── Auth/
-            │   └── AuthModal.jsx
-            ├── Chat/
-            │   ├── ChatInput.jsx
-            │   ├── ChatMessage.jsx
-            │   ├── ToolStatus.jsx
-            │   └── WelcomeScreen.jsx
-            ├── Layout/
-            │   └── Header.jsx
-            └── Timeline/
-                └── ItineraryTimeline.jsx
+# ─── Flask ──────────────────────────────────────────
+FLASK_SECRET_KEY=change-me
+FLASK_ENV=development
+FLASK_PORT=5001
+FRONTEND_URL=http://localhost:5173
 ```
 
-## Connecting Real APIs
+If you change `FLASK_PORT`, also update `VITE_BACKEND_PORT` in `frontend/.env` so the Vite proxy points to the right place.
 
-The backend services use mock data by default. To connect real APIs:
+---
 
-### Flights — Amadeus or Duffel
-Replace `services/flight_service.py` with calls to:
-- [Amadeus Flight Offers Search](https://developers.amadeus.com/self-service/category/flights)
-- [Duffel Offer Requests](https://duffel.com/docs/api/v1/offer-requests)
+## 7. Port Configuration
 
-### Hotels — Booking.com or Google Hotels
-Replace `services/hotel_service.py` with:
-- [Booking.com Affiliate API](https://developers.booking.com/)
-- [Google Hotels via SerpAPI](https://serpapi.com/google-hotels-api)
+The frontend dev server (Vite) runs on **5173** and proxies `/api/*` requests to the Flask backend. The backend defaults to port **5001**.
 
-### Car Rentals — Kayak or Cartrawler
-Replace `services/car_service.py` with:
-- [Cartrawler API](https://www.cartrawler.com/)
+| Setting | File | Default |
+|---------|------|---------|
+| Flask port | `backend/.env` → `FLASK_PORT` | 5001 |
+| Vite proxy target | `frontend/.env` → `VITE_BACKEND_PORT` | 5001 |
+| Vite dev port | `frontend/vite.config.js` | 5173 |
 
-### Transit — Rome2Rio
-- [Rome2Rio API](https://www.rome2rio.com/documentation/)
+If the frontend can't reach the backend, make sure both port values match.
 
-## API Endpoints
+---
 
-| Method | Endpoint | Description |
-|--------|---------|-------------|
-| `POST` | `/api/chat` | Send message (non-streaming) |
-| `POST` | `/api/chat/stream` | Send message (SSE streaming) |
-| `POST` | `/api/auth/login` | Login with email/password |
-| `POST` | `/api/auth/signup` | Create account |
-| `GET`  | `/api/auth/me` | Get current user |
-| `GET`  | `/api/conversations` | List conversations |
-| `POST` | `/api/conversations` | Create conversation |
-| `GET`  | `/api/conversations/:id/messages` | Get messages |
-| `GET`  | `/api/health` | Health check |
+## 8. How It Works
 
-## License
+1. You type a trip description (e.g., "Plan a 10-day trip to Japan").
+2. The backend sends your message to **GPT-4o** with travel-specific tools.
+3. GPT-4o decides what info it needs and calls tools:
+   - `search_flights` → hits Amadeus/SerpAPI for real flight offers
+   - `search_hotels` → hits Amadeus/SerpAPI for real hotel availability
+   - `search_car_rentals` → generates booking links to Kayak/Google
+   - `search_transit` → returns curated transit pass data for the destination
+4. Once it has enough data, it calls `build_itinerary` to assemble everything.
+5. The frontend renders the itinerary as a **vertical timeline** with:
+   - Color-coded dots for each type (blue=flights, amber=hotels, etc.)
+   - Photo cards for hotels and car rentals
+   - Flight route visuals with layover indicators
+   - Every card is clickable → links to the booking site
+   - Running cost tracker + total cost summary
 
-MIT
+---
+
+## 9. Car Rental Note
+
+There are no widely available free car rental APIs. The app generates **booking redirect links** to Kayak, Google Travel, and Rentalcars.com with estimated price ranges by vehicle class. Clicking a car rental card takes you directly to the aggregator's search results for your dates and city.
+
+---
+
+## 10. Troubleshooting
+
+| Problem | Fix |
+|---------|-----|
+| "No flight API configured" | Add `AMADEUS_CLIENT_ID` + `AMADEUS_CLIENT_SECRET` or `SERPAPI_KEY` to `.env` |
+| Frontend shows "Connection error" | Make sure Flask is running and `FLASK_PORT` matches `VITE_BACKEND_PORT` |
+| Amadeus returns empty results | In test mode, not all city pairs return data. Try major routes like JFK→LHR or LAX→NRT |
+| SerpAPI returns 401 | Check your `SERPAPI_KEY` is valid and has remaining credits |
+| Supabase errors on save | Run `database/schema.sql` in the Supabase SQL Editor |
