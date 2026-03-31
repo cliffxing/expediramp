@@ -125,3 +125,11 @@ export async function createConversation(token, title = 'New Trip') {
   if (!res.ok) throw new Error('Failed to create conversation');
   return res.json();
 }
+
+export async function getConversationMessages(token, conversationId) {
+  const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
+    headers: getHeaders(token),
+  });
+  if (!res.ok) throw new Error('Failed to load messages');
+  return res.json();
+}

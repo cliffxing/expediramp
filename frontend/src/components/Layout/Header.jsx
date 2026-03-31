@@ -24,13 +24,12 @@ export default function Header({ onNewChat, onShowAuth }) {
 
         {/* Right side */}
         <div className="flex items-center gap-2">
-          <button
-            onClick={onNewChat}
-            className="ramp-btn-secondary gap-1.5 text-xs py-2 px-3"
-          >
-            <Plus size={14} />
-            New Trip
-          </button>
+          {!user && (
+            <button onClick={onNewChat} className="ramp-btn-secondary gap-1.5 text-xs py-2 px-3">
+              <Plus size={14} />
+              New Trip
+            </button>
+          )}
 
           {user ? (
             <div className="flex items-center gap-2">
