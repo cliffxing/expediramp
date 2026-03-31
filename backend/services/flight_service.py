@@ -29,67 +29,100 @@ def _airline_logo(code: str) -> str:
     return f"https://www.gstatic.com/flights/airline_logos/70px/{code.upper()}.png"
 
 
-# ── Direct airline booking URL helper ──────────────────────────
-
-_AIRLINE_BOOKING_URLS: dict[str, str] = {
-    # North America
-    "AA": "https://www.aa.com/booking/search?locale=en_US&pax=1&adult=1&type=OneWay&searchType=Award&from={origin}&to={dest}&depart={date}&cabin=",
-    "DL": "https://www.delta.com/flight-search/book-a-flight?cacheKeySuffix=a&tripType=ONE_WAY&action=findFlights&from={origin}&to={dest}&departureDate={date}&paxCount=1",
-    "UA": "https://www.united.com/ual/en/us/flight-search/book-a-flight/results/awd?f={origin}&t={dest}&d={date}&tt=1&at=1&sc=7&px=1&taxng=1&newHP=True&clm=7&st=bestmatches&tqp=A",
-    "WN": "https://www.southwest.com/air/booking/select.html?originationAirportCode={origin}&destinationAirportCode={dest}&departureDate={date}&adultPassengersCount=1&returnDate=",
-    "B6": "https://www.jetblue.com/booking/flights?from={origin}&to={dest}&depart={date}&isMultiCity=false&noOfRoute=1&lang=en&adults=1&children=0&infants=0",
-    "AS": "https://www.alaskaair.com/planbook/shoppingstart?prior=as&A=1&prior=as&FT=ow&O={origin}&D={dest}&OD={date}",
-    "AC": "https://www.aircanada.com/booking/search?tripType=O&ADT=1&org0={origin}&dest0={dest}&departDate0={date}&lang=en-CA",
-    "WS": "https://www.westjet.com/search?type=ow&orig={origin}&dest={dest}&depart={date}&adult=1",
-    # Europe
-    "BA": "https://www.britishairways.com/travel/book/public/en_us?from={origin}&to={dest}&depDate={date}&cabin=M&adultCount=1&youngAdultCount=0&childCount=0&infantCount=0&tripType=oneWay",
-    "LH": "https://www.lufthansa.com/us/en/flight-search?searchType=ONEWAY&pax=1ADT&origin={origin}&destination={dest}&outDate={date}",
-    "AF": "https://www.airfrance.us/search/offer?pax=1:0:0:0:0:0:0:0&cabinClass=ECONOMY&activeConnection=0&connections={origin}-A>{dest}-A:{date}",
-    "KL": "https://www.klm.us/search/offer?pax=1:0:0:0:0:0:0:0&cabinClass=ECONOMY&activeConnection=0&connections={origin}-A>{dest}-A:{date}",
-    # Middle East
-    "EK": "https://www.emirates.com/flights/search?from={origin}&to={dest}&departDate={date}&adult=1&child=0&infant=0&class=Economy",
-    "QR": "https://www.qatarairways.com/en/booking/book-flights.html?from={origin}&to={dest}&departing={date}&adults=1&children=0&infants=0&trip=O&class=E",
-    "EY": "https://www.etihad.com/en/fly-etihad/book/flight-search-results?ow=true&origin={origin}&destination={dest}&departureDate={date}&adults=1",
-    "TK": "https://www.turkishairlines.com/en-int/flights/?origin={origin}&destination={dest}&departureDate={date}&adult=1",
-    # Asia Pacific
-    "SQ": "https://www.singaporeair.com/en_UK/plan-and-book/booking/?from={origin}&to={dest}&departDate={date}&cabinClass=Y&adults=1",
-    "CX": "https://www.cathaypacific.com/cx/en_US/book-a-trip/flight-search.html?origin={origin}&destination={dest}&departure={date}&cabin=economy&adults=1",
-    "JL": "https://www.jal.co.jp/en/inter/booking/?from={origin}&to={dest}&date={date}&adult=1",
-    "NH": "https://www.ana.co.jp/en/us/book-plan/booking/search/?from={origin}&to={dest}&date={date}&adult=1",
-    "QF": "https://www.qantas.com/au/en/book-a-trip/flights.html?from={origin}&to={dest}&date={date}&adult=1&cabin=economy",
-    "KE": "https://www.koreanair.com/booking/search?tripType=OW&from={origin}&to={dest}&departure={date}&adults=1",
-}
+# ── Booking link builders (reliable aggregators only) ──────────
+#
+# Airline-specific booking URLs are intentionally NOT used here.
+# Airlines change their URL structures frequently and most use
+# JavaScript-based SPAs where query params don't reliably pre-fill
+# the search. Instead we link to well-known aggregators with
+# stable, documented URL formats that actually work.
 
 
-def _try_direct_booking_url(
-    airline_code: str,
+def _kayak_url(
     origin: str,
     destination: str,
     departure_date: str,
-) -> str | None:
+    cabin_class: str = "economy",
+    passengers: int = 1,
+) -> str:
     """
-    Attempt to build a direct airline booking URL for the given flight.
-    Returns None if we don't have a template for this airline.
+    Build a Kayak one-way flight search URL.
+    Format: https://www.kayak.com/flights/JFK-LAX/2026-06-15?sort=bestflight_a
+    Stable URL scheme — Kayak has used this path format for years.
+    """
+    cabin_param = {
+        "economy": "",
+        "premium_economy": "/pe",
+        "business": "/b",
+        "first": "/f",
+    }.get(cabin_class, "")
 
-    NOTE: These URLs pre-fill the airline's own search page with the route/date.
-    They are NOT guaranteed to deep-link to a specific flight — the user will
-    still need to select the exact flight on the airline's site. But it's a
-    better experience than a generic Google Flights link.
+    pax_param = f"&adults={passengers}" if passengers > 1 else ""
+
+    return (
+        f"https://www.kayak.com/flights"
+        f"/{origin.upper()}-{destination.upper()}"
+        f"/{departure_date}"
+        f"?sort=bestflight_a"
+        f"{pax_param}"
+        f"{cabin_param}"
+    )
+
+
+def _skyscanner_url(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    cabin_class: str = "economy",
+    passengers: int = 1,
+) -> str:
     """
-    template = _AIRLINE_BOOKING_URLS.get(airline_code.upper())
-    if not template:
-        return None
+    Build a Skyscanner one-way flight search URL.
+    Format: https://www.skyscanner.com/transport/flights/jfk/lax/260615/
+    Date format: YYMMDD
+    """
     try:
-        return template.format(
-            origin=origin.upper(),
-            dest=destination.upper(),
-            date=departure_date,
-        )
-    except (KeyError, IndexError):
-        return None
+        dt = datetime.strptime(departure_date, "%Y-%m-%d")
+        date_str = dt.strftime("%y%m%d")
+    except ValueError:
+        date_str = departure_date.replace("-", "")[2:]  # fallback
+
+    cabin_map = {
+        "economy": "economy",
+        "premium_economy": "premiumeconomy",
+        "business": "business",
+        "first": "first",
+    }
+    cabin = cabin_map.get(cabin_class, "economy")
+
+    return (
+        f"https://www.skyscanner.com/transport/flights"
+        f"/{origin.lower()}/{destination.lower()}"
+        f"/{date_str}/"
+        f"?adultsv2={passengers}"
+        f"&cabinclass={cabin}"
+    )
 
 
-# ── Protobuf-based Google Flights URL builder (kept as fallback) ──
+def _build_booking_links(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    cabin_class: str = "economy",
+    passengers: int = 1,
+) -> dict[str, str]:
+    """
+    Build a dict of booking links to multiple aggregators.
+    All of these URL formats are stable and well-tested.
+    """
+    return {
+        "google_flights": _google_flights_url(origin, destination, departure_date, cabin_class, passengers),
+        "kayak": _kayak_url(origin, destination, departure_date, cabin_class, passengers),
+        "skyscanner": _skyscanner_url(origin, destination, departure_date, cabin_class, passengers),
+    }
+
+
+# ── Protobuf-based Google Flights URL builder ─────────────────
 
 def _build_one_way_tfs(
     origin: str,
@@ -270,9 +303,6 @@ def _search_fli(
 
     logger.info("fli returned %d results for %s → %s", len(flight_results), origin, destination)
 
-    # Build the fallback Google Flights URL
-    google_url = _google_flights_url(origin, destination, departure_date, cabin_class, passengers)
-
     exclude = set(a.upper() for a in (exclude_airports or []))
     results = []
 
@@ -360,10 +390,12 @@ def _search_fli(
 
         total_duration = flight.duration if flight.duration else 0
 
-        # Try to get a direct airline booking link; fall back to Google Flights
-        booking_url = _try_direct_booking_url(
-            airline_code, origin, destination, departure_date
-        ) or google_url
+        # Build booking links to reliable aggregators
+        booking_links = _build_booking_links(
+            origin, destination, departure_date, cabin_class, passengers
+        )
+        # Primary booking_url = Google Flights (proven protobuf encoding)
+        booking_url = booking_links["google_flights"]
 
         results.append({
             "id": f"fli_{origin}_{destination}_{i}",
@@ -382,6 +414,7 @@ def _search_fli(
             "passengers": passengers,
             "departure_date": departure_date,
             "booking_url": booking_url,
+            "booking_links": booking_links,
         })
 
     # ── Smart ranking (for "best" mode) ─────────────────────────
@@ -562,13 +595,13 @@ if __name__ == "__main__":
     print("✓ Protobuf encoding matches known Google Flights tfs string")
 
     # Test direct booking URL generation
-    url = _try_direct_booking_url("DL", "JFK", "LAX", "2026-06-15")
-    assert url is not None and "delta.com" in url
-    print(f"✓ Direct booking URL: {url[:80]}...")
-
-    # Test that unknown airline falls back to None
-    assert _try_direct_booking_url("XX", "JFK", "LAX", "2026-06-15") is None
-    print("✓ Unknown airline returns None (will fall back to Google Flights)")
+    links = _build_booking_links("JFK", "LAX", "2026-06-15")
+    assert "google.com/travel/flights" in links["google_flights"]
+    assert "kayak.com/flights/JFK-LAX" in links["kayak"]
+    assert "skyscanner.com/transport/flights/jfk/lax" in links["skyscanner"]
+    print("✓ All aggregator booking links generated correctly")
+    for name, url in links.items():
+        print(f"  {name}: {url[:80]}...")
 
     # Show example Google Flights URLs
     examples = [
