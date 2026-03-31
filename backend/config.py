@@ -14,5 +14,8 @@ class Config:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     FLASK_PORT = int(os.getenv("FLASK_PORT", 5001))
 
+    # ── RapidAPI (Booking.com flight search — primary) ───────────
+    RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
+
     # ── SerpAPI (hotel search) ───────────────────────────────────────
     SERPAPI_KEY = os.getenv("SERPAPI_KEY")

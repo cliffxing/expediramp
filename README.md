@@ -8,7 +8,7 @@ AI-powered travel agent that plans complete trip itineraries from plain-text des
 frontend/  (React + Vite + Tailwind)
   └── Chat UI → streams SSE from backend
 backend/   (Flask + OpenAI function-calling)
-  └── Travel agent loop → calls Duffel API → builds itinerary
+  └── Travel agent loop → calls Booking.com API → builds itinerary
 database/  (Supabase — Postgres + Auth)
   └── Conversations, messages, saved itineraries
 ```
@@ -23,14 +23,19 @@ database/  (Supabase — Postgres + Auth)
 |---------|-----------|---------|
 | **OpenAI** | Pay-as-you-go | https://platform.openai.com/api-keys |
 
-### Flight & Hotel Data (primary: Duffel)
+### Flight Data (primary: Booking.com via RapidAPI)
 
 | Service | Free tier | Sign-up |
 |---------|-----------|---------|
-| **Duffel** | Test environment (free) | https://app.duffel.com/ |
-| **SerpAPI** | 100 searches/month (fallback) | https://serpapi.com |
+| **RapidAPI (Booking.com)** | Free plan available | https://rapidapi.com/DataCrawler/api/booking-com15 |
 
-> **Recommendation**: Start with a **Duffel test token** (free, sandbox airline inventory). When you're ready for real bookings, generate a live token in the Duffel dashboard.
+> **Recommendation**: Sign up at RapidAPI, subscribe to the **Booking COM** API (by DataCrawler), and copy your `X-RapidAPI-Key`. The free plan works for development.
+
+### Hotel Data
+
+| Service | Free tier | Sign-up |
+|---------|-----------|---------|
+| **SerpAPI** | 100 searches/month | https://serpapi.com |
 
 ### Optional
 
@@ -40,39 +45,34 @@ database/  (Supabase — Postgres + Auth)
 
 ---
 
-## 2. Duffel Setup (Primary — Free Sandbox)
+## 2. RapidAPI Setup (Primary — Booking.com Flights)
 
-Duffel provides real airline and hotel inventory via a unified API. The test environment returns real flight and hotel data using sandbox credentials — no credit card is charged.
+The Booking.com API on RapidAPI provides real-time flight search with rich data including airline logos, per-segment details, layover info, and booking links.
 
-1. Go to https://app.duffel.com/ and create a free account.
-2. Navigate to **Settings → Access tokens**.
-3. Click **Create token** → choose **Test** environment.
-4. Copy the token (starts with `duffel_test_`).
-5. Add to your `.env`:
+1. Go to https://rapidapi.com and create a free account.
+2. Subscribe to **Booking COM** (booking-com15) by DataCrawler.
+3. Copy your **X-RapidAPI-Key** from the dashboard.
+4. Add to your `.env`:
    ```
-   DUFFEL_ACCESS_TOKEN=duffel_test_your-token-here
+   RAPIDAPI_KEY=your-rapidapi-key-here
    ```
 
-### What Duffel provides
+### What Booking.com provides
 
-| Feature | Duffel API |
-|---------|------------|
-| **Flights** | Offer Requests API — real airline inventory (200+ airlines), segments, layovers, cabin classes, live prices |
-| **Hotels** | Stays API — global hotel inventory, availability, photos, amenities, nightly rates |
-| **Booking** | Orders API — real bookings (live token required) |
+| Feature | Details |
+|---------|---------|
+| **Flights** | searchFlights endpoint — real-time prices, segments, layovers, cabin classes, airline logos |
+| **Booking** | Booking tokens that redirect to Booking.com checkout |
 
-### Going Live
+### Fallback: fast-flights
 
-To charge real cards and issue real tickets:
-1. Apply for a live token in the Duffel dashboard (requires business verification).
-2. Replace `DUFFEL_ACCESS_TOKEN=duffel_test_...` with your live token `duffel_live_...`.
-3. Update the system prompt in `agents/tools.py` if desired.
+If the Booking.com API is unavailable (no key set, rate limited, or errors), the system automatically falls back to **fast-flights**, a Google Flights scraper that requires no API key. The data quality is slightly lower but it ensures the app always works.
 
 ---
 
-## 3. SerpAPI Setup (Fallback)
+## 3. SerpAPI Setup (Hotels)
 
-Used only if Duffel is unavailable or fails.
+Used for hotel search.
 
 1. Go to https://serpapi.com and sign up.
 2. Copy your API key from the dashboard.
@@ -112,10 +112,10 @@ Open http://localhost:5173 and start planning a trip!
 # Required
 OPENAI_API_KEY=sk-...
 
-# Duffel (primary travel data API)
-DUFFEL_ACCESS_TOKEN=duffel_test_...    # or duffel_live_...
+# RapidAPI (primary flight search — Booking.com)
+RAPIDAPI_KEY=your-rapidapi-key
 
-# SerpAPI (optional fallback)
+# SerpAPI (hotel search)
 SERPAPI_KEY=
 
 # Supabase (optional — auth & persistence)
@@ -135,13 +135,22 @@ FRONTEND_URL=http://localhost:5173
 ## 6. API Priority Chain
 
 ```
-User asks for flights or hotels
+User asks for flights
         │
         ▼
-  DUFFEL_ACCESS_TOKEN set?
-     YES → call Duffel API  ──fails──► SERPAPI_KEY set?
-                                          YES → call SerpAPI
-                                          NO  → error message
+  RAPIDAPI_KEY set?
+     YES → call Booking.com searchFlights ──fails──► fast-flights (Google Flights scraper)
+      NO → fast-flights directly                        │
+                                                    ──fails──► empty results (never fake data)
+```
+
+```
+User asks for hotels
+        │
+        ▼
+  SERPAPI_KEY set?
+     YES → call SerpAPI Google Hotels
+      NO → mock hotel data
 ```
 
 ---
@@ -152,15 +161,14 @@ User asks for flights or hotels
 expediramp-out/
 ├── backend/
 │   ├── app.py                    Flask entry point
-│   ├── config.py                 Environment config (Duffel token, etc.)
+│   ├── config.py                 Environment config (RapidAPI key, etc.)
 │   ├── requirements.txt
 │   ├── agents/
 │   │   ├── travel_agent.py       OpenAI function-calling agent loop
 │   │   └── tools.py              Tool definitions + system prompt
 │   ├── services/
-│   │   ├── duffel_client.py      ★ Duffel REST client (auth + helpers)
-│   │   ├── flight_service.py     ★ Duffel Flights → SerpAPI fallback
-│   │   ├── hotel_service.py      ★ Duffel Stays → SerpAPI fallback
+│   │   ├── flight_service.py     ★ Booking.com via RapidAPI → fast-flights fallback
+│   │   ├── hotel_service.py      SerpAPI Google Hotels → mock fallback
 │   │   ├── car_service.py        Car rental & transit
 │   │   └── supabase_client.py    Auth + DB helpers
 │   └── routes/
@@ -179,7 +187,7 @@ expediramp-out/
     └── schema.sql                Supabase schema
 ```
 
-★ = updated/new in Duffel integration
+★ = updated in Booking.com RapidAPI integration
 
 ---
 
@@ -204,8 +212,9 @@ Agent: [calls search_flights(origin=YYZ, destination=NRT, ...)]
 
 | Problem | Fix |
 |---------|-----|
-| `DUFFEL_ACCESS_TOKEN is not set` | Add token to `.env` from https://app.duffel.com/ |
-| Duffel returns 401 | Token may be expired or wrong environment (test vs live) |
-| No hotel results for a city | City may not be in the coordinate mapping — open a PR to add it |
-| Duffel 422 on offer request | Check IATA codes are valid; Duffel requires real airport codes |
-| SerpAPI fallback used unexpectedly | Check Duffel logs — usually a network timeout |
+| `RAPIDAPI_KEY is not set` | Add your RapidAPI key to `.env` from https://rapidapi.com |
+| Booking.com returns 403 | Your RapidAPI plan may be exhausted or the key is invalid |
+| Booking.com returns 0 results | The route may not be in their inventory — fast-flights fallback will be used automatically |
+| No hotel results for a city | City may not be in the SerpAPI search results |
+| `fast-flights` also returns 0 | Google may be blocking scraping — try again later |
+| SerpAPI fallback used unexpectedly | Check Booking.com logs — usually a rate limit or network timeout |
