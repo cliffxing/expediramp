@@ -14,10 +14,5 @@ class Config:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     FLASK_PORT = int(os.getenv("FLASK_PORT", 5001))
 
-    # ── Duffel API (flights & hotels — primary) ──────────────────────
-    # Get your token at https://app.duffel.com/ → Settings → Access tokens
-    # Use a "test" token for sandbox or "live" token for production.
-    DUFFEL_ACCESS_TOKEN = os.getenv("DUFFEL_ACCESS_TOKEN")
-
-    # ── SerpAPI (optional fallback for Google Flights / Hotels) ──────
+    # ── SerpAPI (hotel search) ───────────────────────────────────────
     SERPAPI_KEY = os.getenv("SERPAPI_KEY")

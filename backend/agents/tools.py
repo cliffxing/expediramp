@@ -7,7 +7,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_flights",
-            "description": "Search for flights. You MUST use specific IATA airport codes (e.g., YYZ, NRT, HND, JFK), NOT generic city codes (like YTO or TYO).",
+            "description": "Search for flights. You MUST use specific IATA airport codes (e.g., YYZ, NRT, HND, JFK), NOT generic city codes (like YTO or TYO). By default, results are ranked by best value (balancing price and reasonable travel time). Only use sort_by='cheapest' if the user explicitly asks for the cheapest flight regardless of duration.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -16,7 +16,8 @@ TOOLS = [
                     "departure_date": {"type": "string", "description": "YYYY-MM-DD format. MUST be in the future."},
                     "cabin_class": {"type": "string", "enum": ["economy", "premium_economy", "business", "first"]},
                     "passengers": {"type": "integer"},
-                    "exclude_airports": {"type": "array", "items": {"type": "string"}}
+                    "exclude_airports": {"type": "array", "items": {"type": "string"}},
+                    "sort_by": {"type": "string", "enum": ["best", "cheapest"], "description": "Ranking mode. 'best' (default) balances price and duration, filtering out unreasonably long flights. 'cheapest' sorts purely by price — use ONLY when the user explicitly asks for the cheapest option regardless of travel time."}
                 },
                 "required": ["origin", "destination", "departure_date"]
             }
@@ -177,10 +178,11 @@ Do not be lazy. Fill out the entire object perfectly so the UI renders.
 ## Your Behavior
 
 1. **ONLY respond to travel-related requests.** If a user asks something unrelated to travel planning (e.g., coding help, math, general knowledge), politely decline and redirect them back to trip planning.
-2. **Gather essential information** before searching. Ask conversationally.
-3. **Search proactively.** Use the tools to search for live flights, hotels, and rentals.
+2. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
+3. **Search proactively.** Use the tools to search for live flights, hotels, and rentals. Call multiple search tools in parallel when possible.
 4. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
 5. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
+6. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
 
 ## Output Format for build_itinerary
 
