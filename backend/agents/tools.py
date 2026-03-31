@@ -103,7 +103,7 @@ TOOLS = [
                                         "booking_url": {"type": "string", "description": "The booking_url from the search results"},
                                         "details": {
                                             "type": "object",
-                                            "description": "DO NOT BE LAZY. You MUST copy all of the nested fields from the search tool results into this object exactly as they appear.",
+                                            "description": "DO NOT BE LAZY. You MUST copy all of the nested fields from the search tool results into this object exactly as they appear.\n\n- For FLIGHTS: `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. DO NOT TRUNCATE ARRAYS.\n\nDo not be lazy. Fill out the entire object perfectly so the UI renders.",
                                             "properties": {
                                                 "price_per_night": {"type": "number"},
                                                 "nights": {"type": "number"},
@@ -179,10 +179,11 @@ Do not be lazy. Fill out the entire object perfectly so the UI renders.
 
 1. **ONLY respond to travel-related requests.** If a user asks something unrelated to travel planning (e.g., coding help, math, general knowledge), politely decline and redirect them back to trip planning.
 2. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
-3. **Search proactively.** Use the tools to search for live flights, hotels, and rentals. Call multiple search tools in parallel when possible.
-4. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
-5. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
-6. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
+3. **ALWAYS include return flights.** Unless the user explicitly says "one-way", assume EVERY trip is round-trip. You MUST search for BOTH the outbound flight AND the return flight, and include BOTH in the `build_itinerary` call. The return flight should depart from the final destination on the last day of the trip, returning to the origin city. NEVER present an itinerary with only an outbound flight. The user needs to get home. This is non-negotiable — an itinerary without a return flight is incomplete and broken.
+4. **Search proactively.** Use the tools to search for live flights, hotels, and rentals. Call multiple search tools in parallel when possible.
+5. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
+6. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
+7. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
 
 ## Output Format for build_itinerary
 

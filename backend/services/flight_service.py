@@ -46,6 +46,7 @@ def _extract_airline_code(airline_name: str) -> str:
     """
     Try to extract an IATA airline code from the flight name string.
     fast-flights returns names like 'Delta Air Lines', 'United Airlines', etc.
+    For multi-airline strings like 'Air Canada, ANA' we try each part.
     We maintain a mapping for common airlines.
     """
     airline_codes = {
@@ -90,9 +91,19 @@ def _extract_airline_code(airline_name: str) -> str:
     }
 
     name_lower = airline_name.lower().strip()
+
+    # First try the full string
     for key, code in airline_codes.items():
         if key in name_lower:
             return code
+
+    # For multi-airline names like "Air Canada, ANA" — try each part
+    if "," in name_lower:
+        for part in name_lower.split(","):
+            part = part.strip()
+            for key, code in airline_codes.items():
+                if key in part:
+                    return code
 
     return ""
 
@@ -159,7 +170,7 @@ def _search_fast_flights(
             continue
 
         if not airline_name:
-            airline_name = "Airline"
+            airline_name = "Unknown Airline"
 
         # Parse price
         price = 0
@@ -310,20 +321,26 @@ def _rank_by_value(flights: list[dict]) -> list[dict]:
     return [f for _, f in ranked] + zero_price
 
 
-def _mock_flights(origin: str, destination: str, date: str, passengers: int) -> list[dict]:
-    query = urllib.parse.quote(f"Flights from {origin} to {destination} on {date}")
-    return [{
-        "id": "mock_flight_1",
-        "airline": {"code": "DL", "name": "Delta Air Lines", "logo": _airline_logo("DL")},
-        "segments": [{
-            "flight_number": "DL102", "origin": origin, "destination": destination,
-            "departure_time": "08:00", "arrival_time": "11:30", "duration_minutes": 210, "aircraft": "Boeing 737"
-        }],
-        "layovers": [], "is_nonstop": True, "total_duration_minutes": 210,
-        "cabin_class": "economy", "price_per_person": 345.0, "total_price": 345.0 * passengers,
-        "passengers": passengers, "departure_date": date,
-        "booking_url": f"https://www.google.com/travel/flights?q={query}"
-    }]
+# ── Alternate airport mapping for retry ────────────────────────
+# When a search fails for one airport, try the other major airport
+# in the same city (e.g. NRT ↔ HND for Tokyo).
+_ALTERNATE_AIRPORTS = {
+    "NRT": "HND", "HND": "NRT",  # Tokyo
+    "LHR": "LGW", "LGW": "LHR", "STN": "LHR",  # London
+    "JFK": "EWR", "EWR": "JFK", "LGA": "JFK",  # New York
+    "ORD": "MDW", "MDW": "ORD",  # Chicago
+    "LAX": "BUR", "BUR": "LAX",  # Los Angeles
+    "SFO": "OAK", "OAK": "SFO",  # San Francisco
+    "CDG": "ORY", "ORY": "CDG",  # Paris
+    "ICN": "GMP", "GMP": "ICN",  # Seoul
+    "KIX": "ITM", "ITM": "KIX",  # Osaka
+    "PEK": "PKX", "PKX": "PEK",  # Beijing
+    "PVG": "SHA", "SHA": "PVG",  # Shanghai
+    "DCA": "IAD", "IAD": "DCA", "BWI": "DCA",  # Washington DC
+    "DFW": "DAL", "DAL": "DFW",  # Dallas
+    "MIA": "FLL", "FLL": "MIA",  # Miami
+    "YYZ": "YTZ", "YTZ": "YYZ",  # Toronto
+}
 
 
 def search_flights(
@@ -337,7 +354,9 @@ def search_flights(
     sort_by: str = "best",
 ) -> list[dict]:
     """
-    Search for flights using fast-flights (Google Flights scraper) or fallback mock data.
+    Search for flights using fast-flights (Google Flights scraper).
+    If the primary search fails, retries with an alternate airport in the same city.
+    Never returns fake/mock data — returns an empty list on total failure.
 
     sort_by:
       "best"     — (default) balance price + duration, filter out outlier durations
@@ -346,14 +365,51 @@ def search_flights(
     origin = origin.upper()
     destination = destination.upper()
 
+    # ── Primary search ─────────────────────────────────────────
     try:
-        return _search_fast_flights(
+        results = _search_fast_flights(
             origin, destination, departure_date,
             cabin_class, passengers, max_results, exclude_airports,
             sort_by,
         )
+        if results:
+            return results
+        logger.warning("Primary search %s → %s returned 0 results after filtering.", origin, destination)
     except Exception:
-        logger.exception("fast-flights search failed, falling back to mock data.")
+        logger.exception("fast-flights primary search failed for %s → %s.", origin, destination)
 
-    logger.warning("Using mock flight data.")
-    return _mock_flights(origin, destination, departure_date, passengers)
+    # ── Retry with alternate airport ───────────────────────────
+    alt_dest = _ALTERNATE_AIRPORTS.get(destination)
+    alt_origin = _ALTERNATE_AIRPORTS.get(origin)
+
+    # Try alternate destination first (more common: NRT fails → try HND)
+    if alt_dest:
+        logger.info("Retrying with alternate destination: %s → %s", origin, alt_dest)
+        try:
+            results = _search_fast_flights(
+                origin, alt_dest, departure_date,
+                cabin_class, passengers, max_results, exclude_airports,
+                sort_by,
+            )
+            if results:
+                return results
+        except Exception:
+            logger.warning("Alternate destination %s also failed.", alt_dest)
+
+    # Try alternate origin
+    if alt_origin:
+        logger.info("Retrying with alternate origin: %s → %s", alt_origin, destination)
+        try:
+            results = _search_fast_flights(
+                alt_origin, destination, departure_date,
+                cabin_class, passengers, max_results, exclude_airports,
+                sort_by,
+            )
+            if results:
+                return results
+        except Exception:
+            logger.warning("Alternate origin %s also failed.", alt_origin)
+
+    # ── Total failure — return empty, never fake data ──────────
+    logger.error("All flight searches failed for %s → %s on %s. Returning empty.", origin, destination, departure_date)
+    return []
