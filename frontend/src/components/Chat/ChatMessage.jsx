@@ -35,7 +35,7 @@ export default function ChatMessage({ role, content, isStreaming }) {
           {isUser ? (
             <div className="whitespace-pre-wrap">{content}</div>
           ) : (
-            <div className="prose prose-sm max-w-none prose-p:leading-relaxed prose-a:text-blue-600 prose-ul:my-1 prose-li:my-0 text-ramp-text">
+            <div className="prose prose-sm max-w-none break-words [overflow-wrap:anywhere] prose-p:leading-relaxed prose-a:text-blue-600 prose-ul:my-1 prose-li:my-0 text-ramp-text">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {content}
               </ReactMarkdown>
