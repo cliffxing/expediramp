@@ -8,6 +8,7 @@ Package: https://pypi.org/project/fast-flights/
 import logging
 import re
 import urllib.parse
+import base64
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -108,10 +109,115 @@ def _extract_airline_code(airline_name: str) -> str:
     return ""
 
 
-def _google_flights_url(origin: str, destination: str, date: str) -> str:
-    """Build a Google Flights search URL for booking."""
-    query = urllib.parse.quote(f"Flights from {origin} to {destination} on {date}")
-    return f"https://www.google.com/travel/flights?q={query}"
+def _build_one_way_tfs(
+    origin: str,
+    destination: str,
+    date: str,
+    passengers: int = 1,
+) -> str:
+    """
+    Build the Google Flights `tfs` query parameter for a one-way flight search.
+ 
+    This encodes the search as a Base64 URL-safe protobuf string — the same
+    format Google Flights uses internally when you perform a search in the UI.
+ 
+    The protobuf structure (reverse-engineered from Google Flights):
+      field 1  (varint):  28 (0x1C) — search display mode
+      field 2  (varint):  2 — one-way search
+      field 3  (embedded): flight leg message
+        field 2  (string):  departure date "YYYY-MM-DD"
+        field 13 (embedded): origin airport {field1: 1, field2: "IATA"}
+        field 14 (embedded): dest airport   {field1: 1, field2: "IATA"}
+      field 8  (varint):  1
+      field 9  (varint):  1
+      field 14 (varint):  1
+      field 16 (embedded): config {field1: INT64_MAX} — forces full calculation
+      field 19 (varint):  number of passengers
+    """
+    date_bytes = date.encode("ascii")
+    origin_bytes = origin.upper().encode("ascii")
+    dest_bytes = destination.upper().encode("ascii")
+ 
+    # Airport sub-message: { field1: varint(1), field2: string(CODE) }
+    origin_airport = b"\x08\x01\x12" + bytes([len(origin_bytes)]) + origin_bytes
+    dest_airport = b"\x08\x01\x12" + bytes([len(dest_bytes)]) + dest_bytes
+ 
+    # Flight leg sub-message
+    leg = b"\x12" + bytes([len(date_bytes)]) + date_bytes          # field 2: date
+    leg += b"\x6a" + bytes([len(origin_airport)]) + origin_airport  # field 13: origin
+    leg += b"\x72" + bytes([len(dest_airport)]) + dest_airport      # field 14: dest
+ 
+    # Top-level message
+    msg = bytearray()
+    msg += b"\x08\x1c"                                               # field 1 = 28
+    msg += b"\x10\x02"                                               # field 2 = 2 (one-way)
+    msg += b"\x1a" + bytes([len(leg)]) + leg                         # field 3 = leg
+    msg += b"\x40\x01"                                               # field 8 = 1
+    msg += b"\x48\x01"                                               # field 9 = 1
+    msg += b"\x70\x01"                                               # field 14 = 1
+    msg += b"\x82\x01\x0b"                                           # field 16, length 11
+    msg += b"\x08\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"           # INT64_MAX
+    msg += b"\x98\x01" + bytes([max(1, min(passengers, 9))])         # field 19 = passengers
+ 
+    return base64.urlsafe_b64encode(bytes(msg)).decode("ascii").rstrip("=")
+ 
+ 
+def _google_flights_url(
+    origin: str,
+    destination: str,
+    date: str,
+    cabin_class: str = "economy",
+    passengers: int = 1,
+) -> str:
+    """
+    Build a Google Flights search URL with a proper protobuf-encoded tfs parameter.
+ 
+    Returns a URL like:
+      https://www.google.com/travel/flights/search?tfs=CBwQAh...&hl=en&curr=USD
+ 
+    This opens Google Flights pre-filled with the exact route, date, and class
+    so the user's specific flight appears at/near the top of the results page.
+    """
+    tfs = _build_one_way_tfs(origin, destination, date, passengers)
+ 
+    # Map cabin_class to Google Flights seat URL parameter
+    seat_param = {
+        "economy": "",          # default, no param needed
+        "premium_economy": "&tfc=PE",
+        "business": "&tfc=B",
+        "first": "&tfc=F",
+    }.get(cabin_class, "")
+ 
+    return (
+        f"https://www.google.com/travel/flights/search"
+        f"?tfs={tfs}"
+        f"&tfu=EgIIAQ"    # standard flag (enables full search)
+        f"&hl=en"
+        f"&curr=USD"
+        f"{seat_param}"
+    )
+ 
+ 
+# ── Quick self-test ──────────────────────────────────────────────────
+ 
+if __name__ == "__main__":
+    # Verify against known working Google Flights tfs string
+    # SFO -> LAX, 2024-12-25, 2 passengers (from Rayobyte article)
+    expected = "CBwQAhoeEgoyMDI0LTEyLTI1agcIARIDU0ZPcgcIARIDTEFYQAFIAXABggELCP___________wGYAQI"
+    generated = _build_one_way_tfs("SFO", "LAX", "2024-12-25", passengers=2)
+    assert generated == expected, f"Mismatch!\n  got:    {generated}\n  expect: {expected}"
+    print("✓ Protobuf encoding matches known Google Flights tfs string")
+ 
+    # Show example URLs
+    examples = [
+        ("YYZ", "NRT", "2026-06-15", "economy", 1),
+        ("JFK", "LHR", "2026-07-01", "business", 2),
+        ("LAX", "CDG", "2026-08-10", "first", 1),
+    ]
+    for orig, dest, dt, cabin, pax in examples:
+        url = _google_flights_url(orig, dest, dt, cabin, pax)
+        print(f"\n{orig} → {dest} ({dt}, {cabin}, {pax}pax):")
+        print(f"  {url}")
 
 
 def _search_fast_flights(
@@ -155,7 +261,7 @@ def _search_fast_flights(
         return []
 
     logger.info("fast-flights returned %d raw results for %s → %s", len(result.flights), origin, destination)
-    booking_url = _google_flights_url(origin, destination, departure_date)
+    booking_url = _google_flights_url(origin, destination, departure_date, cabin_class, passengers)
     exclude = set(a.upper() for a in (exclude_airports or []))
     results = []
 
