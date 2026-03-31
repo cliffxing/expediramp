@@ -5,6 +5,7 @@ Duffel docs: https://duffel.com/docs/api
 
 import logging
 import requests
+import urllib.parse
 from datetime import datetime
 
 from config import Config
@@ -13,60 +14,36 @@ logger = logging.getLogger(__name__)
 
 # ── Airline logo helper ────────────────────────────────────────
 
-AIRLINE_LOGOS: dict[str, str] = {
-    "UA": "https://www.gstatic.com/flights/airline_logos/70px/UA.png",
-    "DL": "https://www.gstatic.com/flights/airline_logos/70px/DL.png",
-    "AA": "https://www.gstatic.com/flights/airline_logos/70px/AA.png",
-    "BA": "https://www.gstatic.com/flights/airline_logos/70px/BA.png",
-    "LH": "https://www.gstatic.com/flights/airline_logos/70px/LH.png",
-    "AF": "https://www.gstatic.com/flights/airline_logos/70px/AF.png",
-    "NH": "https://www.gstatic.com/flights/airline_logos/70px/NH.png",
-    "JL": "https://www.gstatic.com/flights/airline_logos/70px/JL.png",
-    "SQ": "https://www.gstatic.com/flights/airline_logos/70px/SQ.png",
-    "EK": "https://www.gstatic.com/flights/airline_logos/70px/EK.png",
-    "AC": "https://www.gstatic.com/flights/airline_logos/70px/AC.png",
-    "QF": "https://www.gstatic.com/flights/airline_logos/70px/QF.png",
-    "TK": "https://www.gstatic.com/flights/airline_logos/70px/TK.png",
-    "KL": "https://www.gstatic.com/flights/airline_logos/70px/KL.png",
-    "CX": "https://www.gstatic.com/flights/airline_logos/70px/CX.png",
-    "QR": "https://www.gstatic.com/flights/airline_logos/70px/QR.png",
-    "WN": "https://www.gstatic.com/flights/airline_logos/70px/WN.png",
-    "B6": "https://www.gstatic.com/flights/airline_logos/70px/B6.png",
-    "AS": "https://www.gstatic.com/flights/airline_logos/70px/AS.png",
-    "NK": "https://www.gstatic.com/flights/airline_logos/70px/NK.png",
-    "F9": "https://www.gstatic.com/flights/airline_logos/70px/F9.png",
-    "VS": "https://www.gstatic.com/flights/airline_logos/70px/VS.png",
-    "IB": "https://www.gstatic.com/flights/airline_logos/70px/IB.png",
-    "AZ": "https://www.gstatic.com/flights/airline_logos/70px/AZ.png",
-    "SK": "https://www.gstatic.com/flights/airline_logos/70px/SK.png",
-    "AY": "https://www.gstatic.com/flights/airline_logos/70px/AY.png",
-    "LX": "https://www.gstatic.com/flights/airline_logos/70px/LX.png",
-    "OS": "https://www.gstatic.com/flights/airline_logos/70px/OS.png",
-    "KE": "https://www.gstatic.com/flights/airline_logos/70px/KE.png",
-    "OZ": "https://www.gstatic.com/flights/airline_logos/70px/OZ.png",
-}
-
 def _airline_logo(code: str) -> str:
-    """Return a Google Flights airline logo URL for any IATA code."""
     if not code:
         return ""
-    return AIRLINE_LOGOS.get(
-        code.upper(),
-        f"https://www.gstatic.com/flights/airline_logos/70px/{code.upper()}.png",
-    )
+    return f"https://www.gstatic.com/flights/airline_logos/70px/{code.upper()}.png"
 
 def _parse_duration(iso: str) -> int:
-    """Convert ISO-8601 duration like 'PT14H30M' to total minutes."""
-    iso = iso.replace("PT", "")
-    hours = 0
-    minutes = 0
+    """Convert ISO-8601 duration like 'P1DT14H30M' or 'PT8H' to total minutes."""
+    if not iso:
+        return 0
+    
+    iso = iso.upper().replace("P", "")
+    days = hours = minutes = 0
+    
+    if "D" in iso:
+        parts = iso.split("D")
+        days = int(parts[0] or 0)
+        iso = parts[1]
+        
+    iso = iso.replace("T", "")
+    
     if "H" in iso:
         parts = iso.split("H")
-        hours = int(parts[0])
+        hours = int(parts[0] or 0)
         iso = parts[1]
+        
     if "M" in iso:
-        minutes = int(iso.replace("M", ""))
-    return hours * 60 + minutes
+        parts = iso.split("M")
+        minutes = int(parts[0] or 0)
+        
+    return (days * 24 * 60) + (hours * 60) + minutes
 
 def _search_duffel(
     origin: str,
@@ -92,58 +69,48 @@ def _search_duffel(
     
     payload = {
         "data": {
-            "slices": [
-                {
-                    "origin": origin,
-                    "destination": destination,
-                    "departure_date": departure_date
-                }
-            ],
+            "slices": [{"origin": origin, "destination": destination, "departure_date": departure_date}],
             "passengers": [{"type": "adult"} for _ in range(passengers)],
             "cabin_class": cabin_map.get(cabin_class, "economy")
         }
     }
 
-    # Create Offer Request
     resp = requests.post("https://api.duffel.com/air/offer_requests", json=payload, headers=headers, timeout=30)
     resp.raise_for_status()
     
     offers = resp.json().get("data", {}).get("offers", [])
-    
     exclude = set((a.upper() for a in (exclude_airports or [])))
     results = []
 
     for offer in offers:
-        if not offer.get("slices"):
-            continue
-            
+        if not offer.get("slices"): continue
         slice_data = offer["slices"][0]
         segments_raw = slice_data.get("segments", [])
 
-        # Filter out offers with excluded layover airports
         if exclude:
             stops = {s["destination"]["iata_code"] for s in segments_raw[:-1]}
-            if stops & exclude:
-                continue
+            if stops & exclude: continue
 
         total_duration = _parse_duration(slice_data.get("duration", "PT0M"))
         is_nonstop = len(segments_raw) == 1
 
-        # Build segments
         segments = []
         for seg in segments_raw:
             marketing = seg.get("marketing_carrier", {}) or {}
+            
+            # Safely handle if aircraft is entirely null
+            aircraft_data = seg.get("aircraft") or {}
+            
             segments.append({
                 "flight_number": f"{marketing.get('iata_code', '')}{seg.get('marketing_carrier_flight_number', '')}",
                 "origin": seg["origin"]["iata_code"],
                 "destination": seg["destination"]["iata_code"],
-                "departure_time": seg["departing_at"][11:16],  # extract HH:MM
+                "departure_time": seg["departing_at"][11:16],
                 "arrival_time": seg["arriving_at"][11:16],
                 "duration_minutes": _parse_duration(seg.get("duration", "PT0M")),
-                "aircraft": seg.get("aircraft", {}).get("name", "Unknown Aircraft"),
+                "aircraft": aircraft_data.get("name", "Unknown Aircraft"),
             })
 
-        # Build layovers
         layovers = []
         for i in range(len(segments_raw) - 1):
             arr = segments_raw[i]["destination"]
@@ -151,8 +118,7 @@ def _search_duffel(
                 arr_dt = datetime.fromisoformat(segments_raw[i]["arriving_at"])
                 dep_dt = datetime.fromisoformat(segments_raw[i + 1]["departing_at"])
                 lay_mins = int((dep_dt - arr_dt).total_seconds() / 60)
-            except Exception:
-                lay_mins = 0
+            except Exception: lay_mins = 0
                 
             layovers.append({
                 "airport": arr["iata_code"],
@@ -163,7 +129,10 @@ def _search_duffel(
 
         main_carrier = offer.get("owner", {})
         total_price = float(offer.get("total_amount", 0))
-        price_per_pax = round(total_price / max(passengers, 1), 2)
+
+        # Duffel does not provide redirect URLs. Using foolproof Google Flights links based on exact params.
+        query = urllib.parse.quote(f"Flights from {origin} to {destination} on {departure_date}")
+        google_flights_url = f"https://www.google.com/travel/flights?q={query}"
 
         results.append({
             "id": offer.get("id"),
@@ -177,11 +146,11 @@ def _search_duffel(
             "is_nonstop": is_nonstop,
             "total_duration_minutes": total_duration,
             "cabin_class": cabin_class,
-            "price_per_person": price_per_pax,
+            "price_per_person": round(total_price / max(passengers, 1), 2),
             "total_price": total_price,
             "passengers": passengers,
             "departure_date": departure_date,
-            "booking_url": f"https://www.kayak.com/flights/{origin}-{destination}/{departure_date}"
+            "booking_url": google_flights_url
         })
 
     results.sort(key=lambda x: x["total_price"])
@@ -189,32 +158,18 @@ def _search_duffel(
 
 
 def _mock_flights(origin: str, destination: str, date: str, passengers: int) -> list[dict]:
-    """Fallback generator to ensure the UI timeline works perfectly even without an API key."""
+    query = urllib.parse.quote(f"Flights from {origin} to {destination} on {date}")
     return [{
         "id": "mock_flight_1",
-        "airline": {
-            "code": "DL",
-            "name": "Delta Air Lines",
-            "logo": _airline_logo("DL")
-        },
+        "airline": {"code": "DL", "name": "Delta Air Lines", "logo": _airline_logo("DL")},
         "segments": [{
-            "flight_number": "DL102",
-            "origin": origin,
-            "destination": destination,
-            "departure_time": "08:00",
-            "arrival_time": "11:30",
-            "duration_minutes": 210,
-            "aircraft": "Boeing 737"
+            "flight_number": "DL102", "origin": origin, "destination": destination,
+            "departure_time": "08:00", "arrival_time": "11:30", "duration_minutes": 210, "aircraft": "Boeing 737"
         }],
-        "layovers": [],
-        "is_nonstop": True,
-        "total_duration_minutes": 210,
-        "cabin_class": "economy",
-        "price_per_person": 345.0,
-        "total_price": 345.0 * passengers,
-        "passengers": passengers,
-        "departure_date": date,
-        "booking_url": f"https://www.kayak.com/flights/{origin}-{destination}/{date}"
+        "layovers": [], "is_nonstop": True, "total_duration_minutes": 210,
+        "cabin_class": "economy", "price_per_person": 345.0, "total_price": 345.0 * passengers,
+        "passengers": passengers, "departure_date": date,
+        "booking_url": f"https://www.google.com/travel/flights?q={query}"
     }]
 
 
@@ -237,6 +192,9 @@ def search_flights(
                 origin, destination, departure_date,
                 cabin_class, passengers, max_results, exclude_airports,
             )
+        except requests.exceptions.HTTPError as e:
+            # This will print the exact reason Duffel rejected the request
+            logger.error(f"Duffel API rejected the request: {e.response.text}")
         except Exception:
             logger.exception("Duffel flight search failed, falling back to mock data.")
 
