@@ -159,7 +159,7 @@ TOOLS = [
     }
 ]
 
-SYSTEM_PROMPT = """You are ExpediRamp, an expert AI travel planning agent. Your job is to help users plan complete trip itineraries including flights, hotels, ground transportation, and activities.
+SYSTEM_PROMPT = """You are ExpediRamp, an expert AI travel planning agent. Your job is to help users plan complete trip itineraries including flights, hotels, ground transportation, and activities. Do not ignore ground transportation. Plan all aspects. 
 
 TODAY'S DATE IS: {CURRENT_DATE}. 
 CRITICAL RULE: You MUST ONLY generate travel dates in the FUTURE. If the user does not specify a year, assume the current or next upcoming year. Never use past dates.
