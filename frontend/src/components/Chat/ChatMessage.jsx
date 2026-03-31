@@ -23,7 +23,7 @@ export default function ChatMessage({ role, content, isStreaming }) {
       {/* Bubble */}
       <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
         <p className="text-2xs font-medium text-ramp-text-tertiary mb-1">
-          {isUser ? 'You' : 'ExpediRamp'}
+          {isUser ? 'You' : 'Expediramp'}
         </p>
         <div
           className={`rounded-ramp px-4 py-3 text-sm leading-relaxed

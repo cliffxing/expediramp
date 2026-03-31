@@ -17,7 +17,7 @@ export default function Header({ onNewChat, onShowAuth }) {
             </svg>
           </div>
           <div>
-            <h1 className="text-sm font-bold text-ramp-text tracking-tight leading-none">ExpediRamp</h1>
+            <h1 className="text-sm font-bold text-ramp-text tracking-tight leading-none">Expediramp</h1>
             <p className="text-2xs text-ramp-text-tertiary leading-none mt-0.5">Modern travel</p>
           </div>
         </div>

@@ -28,7 +28,7 @@ export default function WelcomeScreen({ onSuggestionClick }) {
         <Sparkles size={28} className="text-white" />
       </div>
       <h2 className="text-2xl font-bold text-ramp-text text-center text-balance">
-        Modern Travel Runs on ExpediRamp
+        Modern Travel Runs on Expediramp
       </h2>
       <p className="text-sm text-ramp-text-secondary mt-2 text-center max-w-md text-balance">
         Describe your dream trip in plain English. Our AI agent will find the best flights,
