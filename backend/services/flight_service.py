@@ -1,14 +1,14 @@
 """
-Flight search service — Amadeus Flight Offers Search v2.
+Flight search service using the Duffel Flights API.
 
-Falls back to SerpAPI Google Flights if Amadeus keys are missing.
+Falls back to SerpAPI Google Flights if Duffel keys are missing.
 
-Amadeus docs : https://developers.amadeus.com/self-service/category/flights/api-doc/flight-offers-search
-SerpAPI docs : https://serpapi.com/google-flights-api
+Duffel API docs : https://duffel.com/docs/api/v2/offers
+SerpAPI docs    : https://serpapi.com/google-flights-api
 """
 
-import logging
 import hashlib
+import logging
 import requests
 from datetime import datetime
 
@@ -51,20 +51,27 @@ AIRLINE_LOGOS: dict[str, str] = {
     "OZ": "https://www.gstatic.com/flights/airline_logos/70px/OZ.png",
 }
 
+CABIN_MAP_DUFFEL = {
+    "economy": "economy",
+    "premium_economy": "premium_economy",
+    "business": "business",
+    "first": "first",
+}
+
 
 def _airline_logo(code: str) -> str:
-    """Return a Google Flights airline logo URL for any IATA code."""
     return AIRLINE_LOGOS.get(
         code.upper(),
         f"https://www.gstatic.com/flights/airline_logos/70px/{code.upper()}.png",
     )
 
 
-def _parse_duration(iso: str) -> int:
-    """Convert ISO-8601 duration like 'PT14H30M' to total minutes."""
+def _iso_duration_to_minutes(iso: str) -> int:
+    """Convert ISO 8601 duration 'PT14H30M' to total minutes."""
+    if not iso:
+        return 0
     iso = iso.replace("PT", "")
-    hours = 0
-    minutes = 0
+    hours, minutes = 0, 0
     if "H" in iso:
         parts = iso.split("H")
         hours = int(parts[0])
@@ -74,17 +81,9 @@ def _parse_duration(iso: str) -> int:
     return hours * 60 + minutes
 
 
-CABIN_MAP = {
-    "economy": "ECONOMY",
-    "premium_economy": "PREMIUM_ECONOMY",
-    "business": "BUSINESS",
-    "first": "FIRST",
-}
+# ── Duffel Flight Search ───────────────────────────────────────
 
-
-# ── Amadeus Flight Offers Search ───────────────────────────────
-
-def _search_amadeus(
+def _search_duffel(
     origin: str,
     destination: str,
     departure_date: str,
@@ -93,108 +92,131 @@ def _search_amadeus(
     max_results: int,
     exclude_airports: list[str] | None,
 ) -> list[dict]:
-    from services.amadeus_client import amadeus_get
+    """Search for flights using the Duffel Offers API."""
+    from services.duffel_client import duffel_post, duffel_get
 
-    params = {
-        "originLocationCode": origin,
-        "destinationLocationCode": destination,
-        "departureDate": departure_date,
-        "adults": passengers,
-        "max": min(max_results, 10),
-        "currencyCode": "USD",
+    cabin = CABIN_MAP_DUFFEL.get(cabin_class, "economy")
+    passenger_list = [{"type": "adult"} for _ in range(passengers)]
+
+    body = {
+        "data": {
+            "slices": [
+                {
+                    "origin": origin.upper(),
+                    "destination": destination.upper(),
+                    "departure_date": departure_date,
+                }
+            ],
+            "passengers": passenger_list,
+            "cabin_class": cabin,
+            "return_offers": True,
+        }
     }
-    cabin = CABIN_MAP.get(cabin_class)
-    if cabin:
-        params["travelClass"] = cabin
 
-    data = amadeus_get("/v2/shopping/flight-offers", params)
-    offers = data.get("data", [])
-    dicts = data.get("dictionaries", {})
-    carrier_names = dicts.get("carriers", {})
+    offer_req = duffel_post("/air/offer_requests", body)
+    request_id = offer_req["data"]["id"]
 
-    exclude = set((a.upper() for a in (exclude_airports or [])))
+    # Fetch offers sorted by price
+    offers_resp = duffel_get(
+        "/air/offers",
+        {
+            "offer_request_id": request_id,
+            "limit": min(max_results * 3, 200),
+            "sort": "total_amount",
+        },
+    )
+    offers = offers_resp.get("data", [])
+
+    exclude = {a.upper() for a in (exclude_airports or [])}
     results = []
 
     for offer in offers:
-        # Each offer has 1+ itineraries; we only care about the outbound (index 0)
-        itin = offer.get("itineraries", [{}])[0]
-        segments_raw = itin.get("segments", [])
+        slices = offer.get("slices", [])
+        if not slices:
+            continue
+        sl = slices[0]
+        segments_raw = sl.get("segments", [])
 
-        # Filter out offers with excluded layover airports
+        # Filter excluded airports
         if exclude:
-            stops = {s["arrival"]["iataCode"] for s in segments_raw[:-1]}
+            stops = {seg["destination"]["iata_code"] for seg in segments_raw[:-1]}
             if stops & exclude:
                 continue
 
-        total_duration = _parse_duration(itin.get("duration", "PT0M"))
-        is_nonstop = len(segments_raw) == 1
-
-        # Build segments
+        # Build segments list
         segments = []
         for seg in segments_raw:
-            carrier_code = seg.get("carrierCode", "")
+            mc = seg.get("marketing_carrier", {})
             segments.append({
-                "flight_number": f"{carrier_code}{seg.get('number', '')}",
-                "origin": seg["departure"]["iataCode"],
-                "destination": seg["arrival"]["iataCode"],
-                "departure_time": seg["departure"].get("at", "")[-8:-3],  # HH:MM
-                "arrival_time": seg["arrival"].get("at", "")[-8:-3],
-                "duration_minutes": _parse_duration(seg.get("duration", "PT0M")),
-                "aircraft": seg.get("aircraft", {}).get("code", ""),
+                "flight_number": f"{mc.get('iata_code', '')}{seg.get('marketing_carrier_flight_number', '')}",
+                "origin": seg["origin"]["iata_code"],
+                "destination": seg["destination"]["iata_code"],
+                "departure_time": seg.get("departing_at", "")[-8:-3] if seg.get("departing_at") else "",
+                "arrival_time": seg.get("arriving_at", "")[-8:-3] if seg.get("arriving_at") else "",
+                "duration_minutes": _iso_duration_to_minutes(seg.get("duration", "")),
+                "aircraft": seg.get("aircraft", {}).get("name", "") if seg.get("aircraft") else "",
             })
 
         # Build layovers
         layovers = []
         for i in range(len(segments_raw) - 1):
-            arr = segments_raw[i]["arrival"]
-            dep = segments_raw[i + 1]["departure"]
+            arr_seg = segments_raw[i]
+            dep_seg = segments_raw[i + 1]
             try:
-                arr_dt = datetime.fromisoformat(arr["at"])
-                dep_dt = datetime.fromisoformat(dep["at"])
+                arr_dt = datetime.fromisoformat(arr_seg["arriving_at"])
+                dep_dt = datetime.fromisoformat(dep_seg["departing_at"])
                 lay_mins = int((dep_dt - arr_dt).total_seconds() / 60)
             except Exception:
                 lay_mins = 0
             layovers.append({
-                "airport": arr["iataCode"],
-                "airport_name": arr.get("terminal", arr["iataCode"]),
-                "city": arr["iataCode"],
+                "airport": arr_seg["destination"]["iata_code"],
+                "airport_name": arr_seg["destination"].get("name", arr_seg["destination"]["iata_code"]),
+                "city": arr_seg["destination"].get("city_name", arr_seg["destination"]["iata_code"]),
                 "duration_minutes": lay_mins,
             })
 
-        # Price
-        price_info = offer.get("price", {})
-        total_price = float(price_info.get("grandTotal", 0))
-        price_per_pax = round(total_price / max(passengers, 1), 2)
+        total_price = float(offer.get("total_amount", 0))
+        price_per_person = round(total_price / max(passengers, 1), 2)
 
-        main_carrier = segments_raw[0].get("carrierCode", "")
+        mc_first = segments_raw[0].get("marketing_carrier", {}) if segments_raw else {}
+        main_carrier = mc_first.get("iata_code", "")
+        carrier_name = mc_first.get("name", main_carrier)
+        total_duration = _iso_duration_to_minutes(sl.get("duration", ""))
 
         results.append({
             "id": offer.get("id", hashlib.md5(str(offer).encode()).hexdigest()[:12]),
+            "duffel_offer_id": offer.get("id"),
             "airline": {
                 "code": main_carrier,
-                "name": carrier_names.get(main_carrier, main_carrier),
+                "name": carrier_name,
                 "logo": _airline_logo(main_carrier),
             },
             "segments": segments,
             "layovers": layovers,
-            "is_nonstop": is_nonstop,
+            "is_nonstop": len(segments_raw) == 1,
             "total_duration_minutes": total_duration,
             "cabin_class": cabin_class,
-            "price_per_person": price_per_pax,
+            "price_per_person": price_per_person,
             "total_price": total_price,
+            "currency": offer.get("total_currency", "USD"),
             "passengers": passengers,
             "departure_date": departure_date,
+            "expires_at": offer.get("expires_at", ""),
+            "conditions": offer.get("conditions", {}),
             "booking_url": (
                 f"https://www.google.com/travel/flights?q="
                 f"{origin}+to+{destination}+{departure_date}"
             ),
         })
 
+        if len(results) >= max_results:
+            break
+
     results.sort(key=lambda x: x["total_price"])
     return results[:max_results]
 
 
-# ── SerpAPI Google Flights fallback ────────────────────────────
+# ── SerpAPI Google Flights fallback ───────────────────────────
 
 def _search_serpapi(
     origin: str,
@@ -205,12 +227,7 @@ def _search_serpapi(
     max_results: int,
     exclude_airports: list[str] | None,
 ) -> list[dict]:
-    cabin_map_serp = {
-        "economy": 1,
-        "premium_economy": 2,
-        "business": 3,
-        "first": 4,
-    }
+    cabin_map_serp = {"economy": 1, "premium_economy": 2, "business": 3, "first": 4}
     params = {
         "engine": "google_flights",
         "departure_id": origin,
@@ -225,7 +242,7 @@ def _search_serpapi(
     resp.raise_for_status()
     data = resp.json()
 
-    exclude = set((a.upper() for a in (exclude_airports or [])))
+    exclude = {a.upper() for a in (exclude_airports or [])}
     results = []
 
     for group in (data.get("best_flights", []) + data.get("other_flights", [])):
@@ -233,7 +250,6 @@ def _search_serpapi(
         if not flights:
             continue
 
-        # Check exclusions
         stop_codes = {f.get("arrival_airport", {}).get("id", "") for f in flights[:-1]}
         if stop_codes & exclude:
             continue
@@ -266,11 +282,14 @@ def _search_serpapi(
 
         results.append({
             "id": hashlib.md5(str(group).encode()).hexdigest()[:12],
+            "duffel_offer_id": None,
             "airline": {
                 "code": carrier_code,
                 "name": flights[0].get("airline", carrier_code),
-                "logo": _airline_logo(carrier_code) if len(carrier_code) == 2 else (
-                    flights[0].get("airline_logo", "")
+                "logo": (
+                    _airline_logo(carrier_code)
+                    if len(carrier_code) == 2
+                    else flights[0].get("airline_logo", "")
                 ),
             },
             "segments": segments,
@@ -280,8 +299,11 @@ def _search_serpapi(
             "cabin_class": cabin_class,
             "price_per_person": round(float(group.get("price", 0)), 2),
             "total_price": total_price,
+            "currency": "USD",
             "passengers": passengers,
             "departure_date": departure_date,
+            "duffel_offer_id": None,
+            "expires_at": "",
             "booking_url": (
                 f"https://www.google.com/travel/flights?q="
                 f"{origin}+to+{destination}+{departure_date}"
@@ -295,7 +317,7 @@ def _search_serpapi(
     return results
 
 
-# ── Public interface ───────────────────────────────────────────
+# ── Public Interface ───────────────────────────────────────────
 
 def search_flights(
     origin: str,
@@ -306,19 +328,19 @@ def search_flights(
     max_results: int = 5,
     exclude_airports: list[str] | None = None,
 ) -> list[dict]:
-    """Search for flights using the best available API."""
+    """Search for flights using Duffel (primary) → SerpAPI (fallback)."""
     origin = origin.upper()
     destination = destination.upper()
 
-    # 1) Try Amadeus
-    if Config.AMADEUS_CLIENT_ID and Config.AMADEUS_CLIENT_SECRET:
+    # 1) Try Duffel
+    if Config.DUFFEL_ACCESS_TOKEN:
         try:
-            return _search_amadeus(
+            return _search_duffel(
                 origin, destination, departure_date,
                 cabin_class, passengers, max_results, exclude_airports,
             )
         except Exception:
-            logger.exception("Amadeus flight search failed, trying SerpAPI fallback")
+            logger.exception("Duffel flight search failed, trying SerpAPI fallback")
 
     # 2) Try SerpAPI
     if Config.SERPAPI_KEY:
@@ -328,15 +350,13 @@ def search_flights(
                 cabin_class, passengers, max_results, exclude_airports,
             )
         except Exception:
-            logger.exception("SerpAPI flight search failed")
+            logger.exception("SerpAPI flight search also failed")
 
     # 3) No API configured
-    logger.error(
-        "No flight API configured. Set AMADEUS_CLIENT_ID/SECRET or SERPAPI_KEY in .env"
-    )
+    logger.error("No flight API configured. Set DUFFEL_ACCESS_TOKEN or SERPAPI_KEY in .env")
     return [{
         "id": "no-api",
-        "error": "No flight API configured. Please add Amadeus or SerpAPI keys to .env.",
+        "error": "No flight API configured. Please add DUFFEL_ACCESS_TOKEN or SERPAPI_KEY to .env.",
         "airline": {"code": "??", "name": "Not configured", "logo": ""},
         "segments": [],
         "layovers": [],
@@ -345,7 +365,10 @@ def search_flights(
         "cabin_class": cabin_class,
         "price_per_person": 0,
         "total_price": 0,
+        "currency": "USD",
         "passengers": passengers,
         "departure_date": departure_date,
+        "duffel_offer_id": None,
+        "expires_at": "",
         "booking_url": f"https://www.google.com/travel/flights?q={origin}+to+{destination}+{departure_date}",
     }]

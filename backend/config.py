@@ -14,11 +14,10 @@ class Config:
     FLASK_ENV = os.getenv("FLASK_ENV", "development")
     FLASK_PORT = int(os.getenv("FLASK_PORT", 5001))
 
-    # Amadeus API (flights & hotels)
-    AMADEUS_CLIENT_ID = os.getenv("AMADEUS_CLIENT_ID")
-    AMADEUS_CLIENT_SECRET = os.getenv("AMADEUS_CLIENT_SECRET")
-    # "test" or "production" — test uses sandbox data
-    AMADEUS_ENV = os.getenv("AMADEUS_ENV", "test")
+    # ── Duffel API (flights & hotels — primary) ──────────────────────
+    # Get your token at https://app.duffel.com/ → Settings → Access tokens
+    # Use a "test" token for sandbox or "live" token for production.
+    DUFFEL_ACCESS_TOKEN = os.getenv("DUFFEL_ACCESS_TOKEN")
 
-    # SerpAPI (fallback for Google Flights / Hotels)
+    # ── SerpAPI (optional fallback for Google Flights / Hotels) ──────
     SERPAPI_KEY = os.getenv("SERPAPI_KEY")
