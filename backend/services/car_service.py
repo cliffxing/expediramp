@@ -1,18 +1,13 @@
 """
 Car rental & transit service.
 
-Car rentals: uses SerpAPI Google Rental Cars if available, otherwise generates
-booking-redirect links to Kayak, Google, and Rentalcars.com.
-
+Car rentals: generates booking-redirect links to Expedia and Rentalcars.com.
 Transit: curated static data for major cities with real URLs.
 """
 
 import logging
 import hashlib
-import requests
 from datetime import datetime
-
-from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -30,32 +25,7 @@ CAR_IMAGES = {
 }
 
 
-# ── SerpAPI Google Rental Cars ────────────────────────────────
-
-def _search_serpapi(
-    city: str,
-    pickup_date: str,
-    dropoff_date: str,
-    car_class: str | None,
-    max_results: int,
-) -> list[dict]:
-    try:
-        d1 = datetime.strptime(pickup_date, "%Y-%m-%d")
-        d2 = datetime.strptime(dropoff_date, "%Y-%m-%d")
-        days = max((d2 - d1).days, 1)
-    except Exception:
-        days = 3
-
-    params = {
-        "engine": "google_hotels",  # SerpAPI doesn't have a dedicated cars engine
-        "q": f"car rental in {city}",
-        "api_key": Config.SERPAPI_KEY,
-    }
-
-    # SerpAPI doesn't have a dedicated car rental engine, so we generate
-    # booking redirect URLs to real aggregators instead.
-    raise NotImplementedError("SerpAPI cars not available; use booking redirects")
-
+# ── Booking Links Generator ───────────────────────────────────
 
 def _generate_booking_links(
     city: str,
@@ -65,18 +35,22 @@ def _generate_booking_links(
     max_results: int,
 ) -> list[dict]:
     """
-    Generate booking redirect links to major car rental aggregators.
-    These link directly to search results on Kayak, Google, etc.
+    Generate booking redirect links to reliable car rental aggregators like Expedia.
     """
     try:
         d1 = datetime.strptime(pickup_date, "%Y-%m-%d")
         d2 = datetime.strptime(dropoff_date, "%Y-%m-%d")
         days = max((d2 - d1).days, 1)
+        
+        # Expedia prefers mm/dd/yyyy formatting
+        ex_d1 = d1.strftime("%m/%d/%Y")
+        ex_d2 = d2.strftime("%m/%d/%Y")
     except Exception:
         days = 3
+        ex_d1 = pickup_date
+        ex_d2 = dropoff_date
 
-    city_slug = city.lower().replace(" ", "-")
-    city_enc = city.replace(" ", "+")
+    city_enc = city.replace(" ", "%20")
 
     # Price estimates by class (realistic ranges)
     estimates = {
@@ -94,16 +68,12 @@ def _generate_booking_links(
 
     aggregators = [
         {
-            "name": "Kayak",
-            "url": f"https://www.kayak.com/cars/{city_slug}/{pickup_date}/{dropoff_date}",
-        },
-        {
-            "name": "Google",
-            "url": f"https://www.google.com/travel/cars?q={city_enc}&pickup={pickup_date}&dropoff={dropoff_date}",
+            "name": "Expedia",
+            "url": f"https://www.expedia.com/carsearch?locn={city_enc}&date1={ex_d1}&date2={ex_d2}",
         },
         {
             "name": "Rentalcars.com",
-            "url": f"https://www.rentalcars.com/search-results?location={city_enc}&puDate={pickup_date}&doDate={dropoff_date}",
+            "url": f"https://www.rentalcars.com/search-results?locationName={city_enc}&dropLocationName={city_enc}&puDate={pickup_date}&doDate={dropoff_date}",
         },
     ]
 
@@ -113,7 +83,7 @@ def _generate_booking_links(
         total_est = round(avg_daily * days, 2)
         vehicle = info["examples"][0]
 
-        for agg in aggregators[:1]:  # one result per class
+        for agg in aggregators[:1]:  # one result per class, prioritizing Expedia
             results.append({
                 "id": hashlib.md5(f"{cls}-{city}-{agg['name']}".encode()).hexdigest()[:12],
                 "company": {"name": agg["name"], "logo": ""},
