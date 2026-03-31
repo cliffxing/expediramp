@@ -21,20 +21,34 @@ HOTEL_IMAGES = [
 def _search_serpapi(city: str, check_in: str, check_out: str, guests: int, rooms: int, budget_tier: str, preferred_neighborhood: str | None, max_results: int) -> list[dict]:
     try:
         nights = max((datetime.strptime(check_out, "%Y-%m-%d") - datetime.strptime(check_in, "%Y-%m-%d")).days, 1)
-    except Exception: nights = 3
+    except Exception:
+        nights = 3
 
-    query = f"hotels in {preferred_neighborhood}, {city}" if preferred_neighborhood else f"hotels in {city}"
-    
-    # URL encode the city string to fix broken links
+    query = f"{preferred_neighborhood}, {city}" if preferred_neighborhood else city
     city_encoded = urllib.parse.quote(city)
 
+    # Price filters — only include max_price when not luxury (avoid 400s from tight ranges)
+    price_floors = {"budget": 0, "mid": 100, "upscale": 200, "luxury": 400}
+    price_ceilings = {"budget": 200, "mid": 400, "upscale": 800, "luxury": 9999}
+
     params = {
-        "engine": "google_hotels", "q": query, "check_in_date": check_in, "check_out_date": check_out,
-        "adults": guests, "currency": "USD",
-        "min_price": {"budget": 0, "mid": 100, "upscale": 200, "luxury": 400}.get(budget_tier, 0),
-        "max_price": {"budget": 120, "mid": 300, "upscale": 600, "luxury": 9999}.get(budget_tier, 9999),
+        "engine": "google_hotels",
+        "q": query,
+        "check_in_date": check_in,
+        "check_out_date": check_out,
+        "adults": str(guests),
+        "rooms": str(rooms),
+        "currency": "USD",
         "api_key": Config.SERPAPI_KEY,
     }
+
+    # Only add price filters for non-luxury (9999 ceiling causes 400)
+    min_p = price_floors.get(budget_tier, 0)
+    max_p = price_ceilings.get(budget_tier, 9999)
+    if min_p > 0:
+        params["min_price"] = min_p
+    if max_p < 9999:
+        params["max_price"] = max_p
 
     resp = requests.get("https://serpapi.com/search.json", params=params, timeout=30)
     resp.raise_for_status()
