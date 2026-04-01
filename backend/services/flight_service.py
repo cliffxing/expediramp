@@ -10,15 +10,86 @@ Benefits:
   - Direct API access instead of HTML scraping → faster, more reliable
   - Structured results with real flight numbers, per-leg details
   - Built-in retry logic and rate limiting
+
+Round-trip support:
+  - search_flights_roundtrip() uses TripType.ROUND_TRIP for A→B→A trips
+  - search_flights() remains one-way for multi-city legs (A→B→C→A)
+  - Price is per-person from fli (searched with adults=1), multiplied by passengers.
+
+Currency note:
+  - The fli package does NOT support a currency parameter.
+  - Google Flights returns prices in the currency matching the server's IP locale.
+  - We detect the likely currency via FLIGHT_CURRENCY env var or locale detection.
+  - Default: USD. Set FLIGHT_CURRENCY=CAD in .env if running from Canada.
 """
 
 import logging
+import os
+import locale
 import re
 import urllib.parse
 import base64
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
+
+
+# ── Currency detection ─────────────────────────────────────────
+# The fli package returns prices in whatever currency Google Flights
+# uses for the server's IP geolocation. Since there's no way to
+# control this in the API, we detect it from environment or locale.
+
+def _detect_currency() -> tuple[str, str]:
+    """
+    Detect the currency that Google Flights is likely returning.
+    
+    Priority:
+    1. FLIGHT_CURRENCY env var (explicit override, e.g. "CAD", "USD", "EUR")
+    2. Locale-based detection from the system
+    3. Default: USD
+    
+    Returns (currency_code, currency_symbol)
+    """
+    # 1. Explicit env var
+    env_currency = os.environ.get("FLIGHT_CURRENCY", "").upper().strip()
+    if env_currency:
+        return env_currency, _currency_symbol(env_currency)
+    
+    # 2. Locale detection
+    try:
+        loc = locale.getlocale()[0] or locale.getdefaultlocale()[0] or ""
+        if loc:
+            country = loc.split("_")[-1].upper() if "_" in loc else ""
+            locale_map = {
+                "CA": ("CAD", "CA$"),
+                "US": ("USD", "$"),
+                "GB": ("GBP", "£"),
+                "AU": ("AUD", "A$"),
+                "EU": ("EUR", "€"),
+                "JP": ("JPY", "¥"),
+                "IN": ("INR", "₹"),
+            }
+            if country in locale_map:
+                return locale_map[country]
+    except Exception:
+        pass
+    
+    # 3. Default
+    return "USD", "$"
+
+
+def _currency_symbol(code: str) -> str:
+    symbols = {
+        "USD": "$", "CAD": "CA$", "EUR": "€", "GBP": "£",
+        "AUD": "A$", "JPY": "¥", "INR": "₹", "CNY": "¥",
+        "KRW": "₩", "MXN": "MX$", "BRL": "R$", "CHF": "CHF",
+    }
+    return symbols.get(code, code)
+
+
+# Cache at module level so we don't re-detect every call
+_DETECTED_CURRENCY, _DETECTED_SYMBOL = _detect_currency()
+logger.info("Flight price currency detected as: %s (%s)", _DETECTED_CURRENCY, _DETECTED_SYMBOL)
 
 
 # ── Airline logo helper ────────────────────────────────────────
@@ -44,10 +115,11 @@ def _kayak_url(
     departure_date: str,
     cabin_class: str = "economy",
     passengers: int = 1,
+    return_date: str | None = None,
 ) -> str:
     """
-    Build a Kayak one-way flight search URL.
-    Format: https://www.kayak.com/flights/JFK-LAX/2026-06-15?sort=bestflight_a
+    Build a Kayak flight search URL (one-way or round-trip).
+    Format: https://www.kayak.com/flights/JFK-LAX/2026-06-15/2026-06-22?sort=bestflight_a
     Stable URL scheme — Kayak has used this path format for years.
     """
     cabin_param = {
@@ -59,10 +131,14 @@ def _kayak_url(
 
     pax_param = f"&adults={passengers}" if passengers > 1 else ""
 
+    date_part = departure_date
+    if return_date:
+        date_part = f"{departure_date}/{return_date}"
+
     return (
         f"https://www.kayak.com/flights"
         f"/{origin.upper()}-{destination.upper()}"
-        f"/{departure_date}"
+        f"/{date_part}"
         f"?sort=bestflight_a"
         f"{pax_param}"
         f"{cabin_param}"
@@ -75,10 +151,11 @@ def _skyscanner_url(
     departure_date: str,
     cabin_class: str = "economy",
     passengers: int = 1,
+    return_date: str | None = None,
 ) -> str:
     """
-    Build a Skyscanner one-way flight search URL.
-    Format: https://www.skyscanner.com/transport/flights/jfk/lax/260615/
+    Build a Skyscanner flight search URL (one-way or round-trip).
+    Format: https://www.skyscanner.com/transport/flights/jfk/lax/260615/260622/
     Date format: YYMMDD
     """
     try:
@@ -86,6 +163,15 @@ def _skyscanner_url(
         date_str = dt.strftime("%y%m%d")
     except ValueError:
         date_str = departure_date.replace("-", "")[2:]  # fallback
+
+    date_path = f"/{date_str}/"
+    if return_date:
+        try:
+            rt = datetime.strptime(return_date, "%Y-%m-%d")
+            ret_str = rt.strftime("%y%m%d")
+            date_path = f"/{date_str}/{ret_str}/"
+        except ValueError:
+            pass
 
     cabin_map = {
         "economy": "economy",
@@ -98,7 +184,7 @@ def _skyscanner_url(
     return (
         f"https://www.skyscanner.com/transport/flights"
         f"/{origin.lower()}/{destination.lower()}"
-        f"/{date_str}/"
+        f"{date_path}"
         f"?adultsv2={passengers}"
         f"&cabinclass={cabin}"
     )
@@ -110,15 +196,17 @@ def _build_booking_links(
     departure_date: str,
     cabin_class: str = "economy",
     passengers: int = 1,
+    return_date: str | None = None,
 ) -> dict[str, str]:
     """
     Build a dict of booking links to multiple aggregators.
     All of these URL formats are stable and well-tested.
+    Supports both one-way and round-trip URLs.
     """
     return {
-        "google_flights": _google_flights_url(origin, destination, departure_date, cabin_class, passengers),
-        "kayak": _kayak_url(origin, destination, departure_date, cabin_class, passengers),
-        "skyscanner": _skyscanner_url(origin, destination, departure_date, cabin_class, passengers),
+        "google_flights": _google_flights_url(origin, destination, departure_date, cabin_class, passengers, return_date),
+        "kayak": _kayak_url(origin, destination, departure_date, cabin_class, passengers, return_date),
+        "skyscanner": _skyscanner_url(origin, destination, departure_date, cabin_class, passengers, return_date),
     }
 
 
@@ -177,23 +265,72 @@ def _build_one_way_tfs(
     return base64.urlsafe_b64encode(bytes(msg)).decode("ascii").rstrip("=")
 
 
+def _build_round_trip_tfs(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    return_date: str,
+    passengers: int = 1,
+) -> str:
+    """
+    Build the Google Flights `tfs` query parameter for a round-trip flight search.
+
+    Similar to one-way but with:
+      field 2 = 1 (round-trip, not 2 = one-way)
+      Two flight leg messages (outbound + return)
+    """
+    origin_bytes = origin.upper().encode("ascii")
+    dest_bytes = destination.upper().encode("ascii")
+
+    def _make_airport(code_bytes):
+        return b"\x08\x01\x12" + bytes([len(code_bytes)]) + code_bytes
+
+    def _make_leg(dep_date, orig_bytes, dst_bytes):
+        date_bytes = dep_date.encode("ascii")
+        orig_airport = _make_airport(orig_bytes)
+        dst_airport = _make_airport(dst_bytes)
+        leg = b"\x12" + bytes([len(date_bytes)]) + date_bytes
+        leg += b"\x6a" + bytes([len(orig_airport)]) + orig_airport
+        leg += b"\x72" + bytes([len(dst_airport)]) + dst_airport
+        return leg
+
+    outbound_leg = _make_leg(departure_date, origin_bytes, dest_bytes)
+    return_leg = _make_leg(return_date, dest_bytes, origin_bytes)
+
+    msg = bytearray()
+    msg += b"\x08\x1c"                                               # field 1 = 28
+    msg += b"\x10\x01"                                               # field 2 = 1 (ROUND TRIP)
+    msg += b"\x1a" + bytes([len(outbound_leg)]) + outbound_leg       # field 3 = outbound leg
+    msg += b"\x1a" + bytes([len(return_leg)]) + return_leg           # field 3 = return leg
+    msg += b"\x40\x01"                                               # field 8 = 1
+    msg += b"\x48\x01"                                               # field 9 = 1
+    msg += b"\x70\x01"                                               # field 14 = 1
+    msg += b"\x82\x01\x0b"                                           # field 16, length 11
+    msg += b"\x08\xff\xff\xff\xff\xff\xff\xff\xff\xff\x01"           # INT64_MAX
+    msg += b"\x98\x01" + bytes([max(1, min(passengers, 9))])         # field 19 = passengers
+
+    return base64.urlsafe_b64encode(bytes(msg)).decode("ascii").rstrip("=")
+
+
 def _google_flights_url(
     origin: str,
     destination: str,
     date: str,
     cabin_class: str = "economy",
     passengers: int = 1,
+    return_date: str | None = None,
 ) -> str:
     """
     Build a Google Flights search URL with a proper protobuf-encoded tfs parameter.
+    Supports both one-way and round-trip.
 
     Returns a URL like:
       https://www.google.com/travel/flights/search?tfs=CBwQAh...&hl=en&curr=USD
-
-    This opens Google Flights pre-filled with the exact route, date, and class
-    so the user's specific flight appears at/near the top of the results page.
     """
-    tfs = _build_one_way_tfs(origin, destination, date, passengers)
+    if return_date:
+        tfs = _build_round_trip_tfs(origin, destination, date, return_date, passengers)
+    else:
+        tfs = _build_one_way_tfs(origin, destination, date, passengers)
 
     # Map cabin_class to Google Flights seat URL parameter
     seat_param = {
@@ -208,7 +345,7 @@ def _google_flights_url(
         f"?tfs={tfs}"
         f"&tfu=EgIIAQ"    # standard flag (enables full search)
         f"&hl=en"
-        f"&curr=USD"
+        f"&curr={_DETECTED_CURRENCY}"
         f"{seat_param}"
     )
 
@@ -228,7 +365,7 @@ def _get_airport_enum(iata_code: str):
         return None
 
 
-# ── Core search using fli ─────────────────────────────────────
+# ── Core search using fli (ONE-WAY) ───────────────────────────
 
 def _search_fli(
     origin: str,
@@ -241,8 +378,12 @@ def _search_fli(
     sort_by: str = "best",
 ) -> list[dict]:
     """
-    Search flights using the flights (fli) package — direct Google Flights API.
+    Search ONE-WAY flights using the flights (fli) package — direct Google Flights API.
     Returns results in the same format as the rest of ExpediRamp expects.
+
+    IMPORTANT: The fli package returns the TOTAL price for all passengers
+    (since we pass PassengerInfo(adults=passengers)). We must NOT multiply
+    by passengers again. price_per_person = total_price / passengers.
     """
     from fli.models import (
         Airport, PassengerInfo, SeatType, MaxStops, SortBy,
@@ -277,10 +418,12 @@ def _search_fli(
         )
         return []
 
-    # Build search filters
+    # Build search filters — ONE-WAY with 1 adult
+    # We always search for 1 passenger and multiply later to avoid
+    # the fli package's inconsistent multi-passenger pricing
     filters = FlightSearchFilters(
         trip_type=TripType.ONE_WAY,
-        passenger_info=PassengerInfo(adults=passengers),
+        passenger_info=PassengerInfo(adults=1),
         flight_segments=[
             FlightSegment(
                 departure_airport=[[origin_airport, 0]],
@@ -333,9 +476,11 @@ def _search_fli(
         if skip:
             continue
 
-        # Skip if price is missing/zero (bad data)
-        price = float(flight.price) if flight.price else 0
-        total_price = price * passengers
+        # PRICE FIX: fli returns price PER PERSON for 1-adult search.
+        # We searched with adults=1, so flight.price = per-person price.
+        # total_price = per_person * passengers (the user's actual count).
+        price_per_person = float(flight.price) if flight.price else 0
+        total_price = price_per_person * passengers
 
         # Build segments list from legs
         segments = []
@@ -344,53 +489,66 @@ def _search_fli(
             arr_code = leg.arrival_airport.name if leg.arrival_airport else destination
             dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
             arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
+            dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
+
+            # Extract flight number
+            flight_num = ""
+            if hasattr(leg, 'flight_number') and leg.flight_number:
+                flight_num = leg.flight_number
+            elif airline_code:
+                flight_num = f"{airline_code} {i + 1}"
 
             segments.append({
-                "flight_number": f"{leg.airline.name} {leg.flight_number}" if leg.airline and leg.flight_number else airline_name,
                 "origin": dep_code,
                 "destination": arr_code,
                 "departure_time": dep_time,
                 "arrival_time": arr_time,
-                "duration_minutes": leg.duration if leg.duration else 0,
-                "aircraft": "",
+                "flight_number": flight_num,
+                "duration_minutes": dur,
+                "aircraft": getattr(leg, 'aircraft', '') or "",
             })
 
-        # Build layover info if there are stops
+        # Build layovers list
+        is_nonstop = len(segments) <= 1
         layovers = []
-        num_stops = flight.stops if flight.stops else 0
-        is_nonstop = (num_stops == 0)
+        for j in range(len(segments) - 1):
+            arr_seg = segments[j]
+            dep_seg = segments[j + 1]
 
-        if num_stops > 0 and len(flight.legs) > 1:
-            # Calculate layover durations between consecutive legs
-            for j in range(len(flight.legs) - 1):
-                current_leg = flight.legs[j]
-                next_leg = flight.legs[j + 1]
+            layover_dur = 0
+            if arr_seg["arrival_time"] and dep_seg["departure_time"]:
+                try:
+                    arr_dt = datetime.strptime(arr_seg["arrival_time"], "%Y-%m-%d %H:%M")
+                    dep_dt = datetime.strptime(dep_seg["departure_time"], "%Y-%m-%d %H:%M")
+                    layover_dur = int((dep_dt - arr_dt).total_seconds() / 60)
+                except Exception:
+                    pass
 
-                layover_airport = current_leg.arrival_airport.name if current_leg.arrival_airport else "—"
-                layover_minutes = 0
+            layover_airport = arr_seg["destination"]
+            num_stops = len(segments) - 1
 
-                if current_leg.arrival_datetime and next_leg.departure_datetime:
-                    delta = next_leg.departure_datetime - current_leg.arrival_datetime
-                    layover_minutes = max(int(delta.total_seconds() / 60), 0)
+            layovers.append({
+                "airport": layover_airport,
+                "airport_name": layover_airport,
+                "description": f"{num_stops} stop(s)",
+                "city": "—",
+                "duration_minutes": layover_dur,
+            })
 
-                layovers.append({
-                    "airport": layover_airport,
-                    "airport_name": layover_airport,
-                    "city": "—",
-                    "duration_minutes": layover_minutes,
-                })
-        elif num_stops > 0:
-            # We know there are stops but don't have detailed leg info
+        # If we have no layovers but flight has multiple segments, add placeholder
+        if not layovers and not is_nonstop:
+            num_stops = getattr(flight, 'stops', 0) or 0
             layovers.append({
                 "airport": "—",
-                "airport_name": f"{num_stops} stop(s)",
+                "airport_name": "",
+                "description": f"{num_stops} stop(s)",
                 "city": "—",
                 "duration_minutes": 0,
             })
 
         total_duration = flight.duration if flight.duration else 0
 
-        # Build booking links to reliable aggregators
+        # Build booking links to reliable aggregators (one-way)
         booking_links = _build_booking_links(
             origin, destination, departure_date, cabin_class, passengers
         )
@@ -407,14 +565,18 @@ def _search_fli(
             "segments": segments,
             "layovers": layovers,
             "is_nonstop": is_nonstop,
+            "is_round_trip": False,
+            "trip_type": "one_way",
             "total_duration_minutes": total_duration,
             "cabin_class": cabin_class,
-            "price_per_person": round(price, 2),
+            "price_per_person": round(price_per_person, 2),
             "total_price": round(total_price, 2),
             "passengers": passengers,
             "departure_date": departure_date,
             "booking_url": booking_url,
             "booking_links": booking_links,
+            "currency_code": _DETECTED_CURRENCY,
+            "currency_symbol": _DETECTED_SYMBOL,
         })
 
     # ── Smart ranking (for "best" mode) ─────────────────────────
@@ -426,6 +588,278 @@ def _search_fli(
 
     logger.info("Returning %d flights (from %d raw, sort=%s)", len(results[:max_results]), len(flight_results), sort_by)
     return results[:max_results]
+
+
+# ── Core search using fli (ROUND-TRIP) ─────────────────────────
+
+def _search_fli_roundtrip(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    return_date: str,
+    cabin_class: str,
+    passengers: int,
+    max_results: int,
+    exclude_airports: list[str] | None,
+    sort_by: str = "best",
+) -> list[dict]:
+    """
+    Search ROUND-TRIP flights using the flights (fli) package.
+    Returns results with both outbound and return segments grouped together.
+
+    The fli package's TripType.ROUND_TRIP returns flights that include
+    both outbound and return legs. The price is the total round-trip
+    price for all passengers.
+
+    We search with adults=1 to get per-person pricing, then multiply.
+    """
+    from fli.models import (
+        Airport, PassengerInfo, SeatType, MaxStops, SortBy,
+        FlightSearchFilters, FlightSegment, TripType,
+    )
+    from fli.search import SearchFlights
+
+    seat_map = {
+        "economy": SeatType.ECONOMY,
+        "premium_economy": SeatType.PREMIUM_ECONOMY,
+        "business": SeatType.BUSINESS,
+        "first": SeatType.FIRST,
+    }
+    sort_map = {
+        "best": SortBy.TOP_FLIGHTS,
+        "cheapest": SortBy.CHEAPEST,
+        "fastest": SortBy.DURATION,
+    }
+
+    origin_airport = _get_airport_enum(origin)
+    dest_airport = _get_airport_enum(destination)
+
+    if origin_airport is None or dest_airport is None:
+        logger.warning(
+            "Airport code not found for round-trip: origin=%s (%s), dest=%s (%s)",
+            origin, "found" if origin_airport else "MISSING",
+            destination, "found" if dest_airport else "MISSING",
+        )
+        return []
+
+    # Build round-trip search with 1 adult for per-person pricing
+    filters = FlightSearchFilters(
+        trip_type=TripType.ROUND_TRIP,
+        passenger_info=PassengerInfo(adults=1),
+        flight_segments=[
+            FlightSegment(
+                departure_airport=[[origin_airport, 0]],
+                arrival_airport=[[dest_airport, 0]],
+                travel_date=departure_date,
+            ),
+            FlightSegment(
+                departure_airport=[[dest_airport, 0]],
+                arrival_airport=[[origin_airport, 0]],
+                travel_date=return_date,
+            ),
+        ],
+        seat_type=seat_map.get(cabin_class, SeatType.ECONOMY),
+        stops=MaxStops.ANY,
+        sort_by=sort_map.get(sort_by, SortBy.TOP_FLIGHTS),
+    )
+
+    search = SearchFlights()
+    flight_results = search.search(filters)
+
+    if not flight_results:
+        logger.warning("fli round-trip returned no results for %s ↔ %s on %s / %s",
+                       origin, destination, departure_date, return_date)
+        return []
+
+    logger.info("fli round-trip returned %d results for %s ↔ %s", len(flight_results), origin, destination)
+
+    exclude = set(a.upper() for a in (exclude_airports or []))
+    results = []
+
+    for i, result_item in enumerate(flight_results):
+        # CRITICAL: fli returns list[tuple(FlightResult, FlightResult)] for round trips.
+        # Each item is (outbound_flight, return_flight).
+        if isinstance(result_item, tuple) and len(result_item) == 2:
+            outbound_flight, return_flight = result_item
+        else:
+            # Fallback if fli changes format — treat as single flight
+            logger.warning("Unexpected round-trip result format at index %d: %s", i, type(result_item))
+            continue
+
+        # Extract airline from outbound first leg
+        out_first_leg = outbound_flight.legs[0] if outbound_flight.legs else None
+        if not out_first_leg:
+            continue
+
+        airline_code = out_first_leg.airline.name if out_first_leg.airline else ""
+        airline_name = out_first_leg.airline.value if out_first_leg.airline else "Unknown Airline"
+        if airline_name == airline_code:
+            airline_name = airline_code
+
+        # Check excluded airports across both directions
+        skip = False
+        all_legs = list(outbound_flight.legs or []) + list(return_flight.legs or [])
+        for leg in all_legs:
+            dep_code = leg.departure_airport.name if leg.departure_airport else ""
+            arr_code = leg.arrival_airport.name if leg.arrival_airport else ""
+            if dep_code in exclude or arr_code in exclude:
+                skip = True
+                break
+        if skip:
+            continue
+
+        # PRICE: outbound.price is the total round-trip price per person
+        price_per_person = float(outbound_flight.price) if outbound_flight.price else 0
+        total_price = price_per_person * passengers
+
+        # Helper to extract segments from a FlightResult's legs
+        def _extract_segments(flight_obj, fallback_origin, fallback_dest):
+            segs = []
+            for leg in (flight_obj.legs or []):
+                dep_code = leg.departure_airport.name if leg.departure_airport else fallback_origin
+                arr_code = leg.arrival_airport.name if leg.arrival_airport else fallback_dest
+                dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
+                arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
+                dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
+
+                flight_num = ""
+                if hasattr(leg, 'flight_number') and leg.flight_number:
+                    acode = leg.airline.name if leg.airline else airline_code
+                    flight_num = f"{acode} {leg.flight_number}"
+                elif airline_code:
+                    flight_num = f"{airline_code} {len(segs) + 1}"
+
+                segs.append({
+                    "origin": dep_code,
+                    "destination": arr_code,
+                    "departure_time": dep_time,
+                    "arrival_time": arr_time,
+                    "flight_number": flight_num,
+                    "duration_minutes": dur,
+                    "aircraft": getattr(leg, 'aircraft', '') or "",
+                })
+            return segs
+
+        outbound_segments = _extract_segments(outbound_flight, origin, destination)
+        return_segments = _extract_segments(return_flight, destination, origin)
+
+        # Build layovers for outbound
+        outbound_layovers = _build_layovers(outbound_segments)
+        return_layovers = _build_layovers(return_segments)
+
+        # Combine all segments and layovers for the full trip view
+        all_segments = outbound_segments + return_segments
+        all_layovers = outbound_layovers + return_layovers
+
+        outbound_nonstop = len(outbound_segments) <= 1
+        return_nonstop = len(return_segments) <= 1
+
+        # Compute outbound and return durations
+        outbound_duration = _compute_leg_duration(outbound_segments)
+        return_duration = _compute_leg_duration(return_segments)
+
+        # Total duration = outbound + return (fli gives duration per FlightResult)
+        out_dur = outbound_flight.duration if outbound_flight.duration else outbound_duration
+        ret_dur = return_flight.duration if return_flight.duration else return_duration
+        total_duration = out_dur + ret_dur
+
+        # Build round-trip booking links
+        booking_links = _build_booking_links(
+            origin, destination, departure_date, cabin_class, passengers,
+            return_date=return_date,
+        )
+        booking_url = booking_links["google_flights"]
+
+        results.append({
+            "id": f"fli_rt_{origin}_{destination}_{i}",
+            "airline": {
+                "code": airline_code,
+                "name": airline_name,
+                "logo": _airline_logo(airline_code) if airline_code else "",
+            },
+            # Full trip data
+            "segments": all_segments,
+            "layovers": all_layovers,
+            "is_nonstop": outbound_nonstop and return_nonstop,
+            "is_round_trip": True,
+            "trip_type": "round_trip",
+            "total_duration_minutes": total_duration,
+            # Outbound details
+            "outbound_segments": outbound_segments,
+            "outbound_layovers": outbound_layovers,
+            "outbound_nonstop": outbound_nonstop,
+            "outbound_duration_minutes": outbound_duration,
+            # Return details
+            "return_segments": return_segments,
+            "return_layovers": return_layovers,
+            "return_nonstop": return_nonstop,
+            "return_duration_minutes": return_duration,
+            # Pricing & metadata
+            "cabin_class": cabin_class,
+            "price_per_person": round(price_per_person, 2),
+            "total_price": round(total_price, 2),
+            "passengers": passengers,
+            "departure_date": departure_date,
+            "return_date": return_date,
+            "booking_url": booking_url,
+            "booking_links": booking_links,
+            "currency_code": _DETECTED_CURRENCY,
+            "currency_symbol": _DETECTED_SYMBOL,
+        })
+
+    # Smart ranking
+    if sort_by != "cheapest" and len(results) > 1:
+        results = _rank_by_value(results)
+    else:
+        results.sort(key=lambda x: (x["total_price"] == 0, x["total_price"]))
+
+    logger.info("Returning %d round-trip flights (from %d raw, sort=%s)",
+                len(results[:max_results]), len(flight_results), sort_by)
+    return results[:max_results]
+
+
+def _build_layovers(segments: list[dict]) -> list[dict]:
+    """Build layover list between consecutive segments."""
+    layovers = []
+    for j in range(len(segments) - 1):
+        arr_seg = segments[j]
+        dep_seg = segments[j + 1]
+
+        layover_dur = 0
+        if arr_seg["arrival_time"] and dep_seg["departure_time"]:
+            try:
+                arr_dt = datetime.strptime(arr_seg["arrival_time"], "%Y-%m-%d %H:%M")
+                dep_dt = datetime.strptime(dep_seg["departure_time"], "%Y-%m-%d %H:%M")
+                layover_dur = int((dep_dt - arr_dt).total_seconds() / 60)
+            except Exception:
+                pass
+
+        layover_airport = arr_seg["destination"]
+        layovers.append({
+            "airport": layover_airport,
+            "airport_name": layover_airport,
+            "description": f"Layover",
+            "city": "—",
+            "duration_minutes": layover_dur,
+        })
+    return layovers
+
+
+def _compute_leg_duration(segments: list[dict]) -> int:
+    """Compute total duration of a set of segments (flight time + layovers)."""
+    if not segments:
+        return 0
+    first_dep = segments[0].get("departure_time", "")
+    last_arr = segments[-1].get("arrival_time", "")
+    if first_dep and last_arr:
+        try:
+            dep_dt = datetime.strptime(first_dep, "%Y-%m-%d %H:%M")
+            arr_dt = datetime.strptime(last_arr, "%Y-%m-%d %H:%M")
+            return int((arr_dt - dep_dt).total_seconds() / 60)
+        except Exception:
+            pass
+    # Fallback: sum segment durations
+    return sum(s.get("duration_minutes", 0) for s in segments)
 
 
 def _rank_by_value(flights: list[dict]) -> list[dict]:
@@ -525,7 +959,7 @@ def search_flights(
     sort_by: str = "best",
 ) -> list[dict]:
     """
-    Search for flights using the flights/fli package (direct Google Flights API).
+    Search for ONE-WAY flights using the flights/fli package (direct Google Flights API).
     If the primary search fails, retries with an alternate airport in the same city.
     Never returns fake/mock data — returns an empty list on total failure.
 
@@ -585,6 +1019,138 @@ def search_flights(
     return []
 
 
+def search_flights_roundtrip(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    return_date: str,
+    cabin_class: str = "economy",
+    passengers: int = 1,
+    max_results: int = 5,
+    exclude_airports: list[str] | None = None,
+    sort_by: str = "best",
+) -> list[dict]:
+    """
+    Search for ROUND-TRIP flights (A → B → A).
+    If the round-trip search fails, falls back to two one-way searches
+    and combines them into a single result.
+
+    sort_by:
+      "best"     — (default) balance price + duration, filter out outlier durations
+      "cheapest" — pure price sort, no duration filtering
+    """
+    origin = origin.upper()
+    destination = destination.upper()
+
+    # ── Primary round-trip search ──────────────────────────────
+    try:
+        results = _search_fli_roundtrip(
+            origin, destination, departure_date, return_date,
+            cabin_class, passengers, max_results, exclude_airports,
+            sort_by,
+        )
+        if results:
+            return results
+        logger.warning("Primary round-trip search %s ↔ %s returned 0 results.", origin, destination)
+    except Exception:
+        logger.exception("fli round-trip search failed for %s ↔ %s.", origin, destination)
+
+    # ── Retry with alternate airports ──────────────────────────
+    alt_dest = _ALTERNATE_AIRPORTS.get(destination)
+    if alt_dest:
+        logger.info("Retrying round-trip with alternate destination: %s ↔ %s", origin, alt_dest)
+        try:
+            results = _search_fli_roundtrip(
+                origin, alt_dest, departure_date, return_date,
+                cabin_class, passengers, max_results, exclude_airports,
+                sort_by,
+            )
+            if results:
+                return results
+        except Exception:
+            logger.warning("Alternate round-trip destination %s also failed.", alt_dest)
+
+    alt_origin = _ALTERNATE_AIRPORTS.get(origin)
+    if alt_origin:
+        logger.info("Retrying round-trip with alternate origin: %s ↔ %s", alt_origin, destination)
+        try:
+            results = _search_fli_roundtrip(
+                alt_origin, destination, departure_date, return_date,
+                cabin_class, passengers, max_results, exclude_airports,
+                sort_by,
+            )
+            if results:
+                return results
+        except Exception:
+            logger.warning("Alternate round-trip origin %s also failed.", alt_origin)
+
+    # ── Fallback: combine two one-way searches ─────────────────
+    logger.info("Round-trip search exhausted, falling back to two one-way searches for %s ↔ %s", origin, destination)
+    try:
+        outbound = search_flights(
+            origin, destination, departure_date,
+            cabin_class, passengers, max_results=3, exclude_airports=exclude_airports,
+            sort_by=sort_by,
+        )
+        inbound = search_flights(
+            destination, origin, return_date,
+            cabin_class, passengers, max_results=3, exclude_airports=exclude_airports,
+            sort_by=sort_by,
+        )
+
+        if outbound and inbound:
+            # Combine best outbound + best inbound into round-trip results
+            combined = []
+            for out_flight in outbound[:2]:
+                for in_flight in inbound[:2]:
+                    combined_segments = out_flight["segments"] + in_flight["segments"]
+                    combined_layovers = out_flight["layovers"] + in_flight["layovers"]
+                    total = out_flight["total_price"] + in_flight["total_price"]
+                    pp = out_flight["price_per_person"] + in_flight["price_per_person"]
+
+                    booking_links = _build_booking_links(
+                        origin, destination, departure_date, cabin_class, passengers,
+                        return_date=return_date,
+                    )
+
+                    combined.append({
+                        "id": f"fli_rt_combined_{origin}_{destination}_{len(combined)}",
+                        "airline": out_flight["airline"],
+                        "segments": combined_segments,
+                        "layovers": combined_layovers,
+                        "is_nonstop": out_flight["is_nonstop"] and in_flight["is_nonstop"],
+                        "is_round_trip": True,
+                        "trip_type": "round_trip",
+                        "total_duration_minutes": out_flight["total_duration_minutes"] + in_flight["total_duration_minutes"],
+                        "outbound_segments": out_flight["segments"],
+                        "outbound_layovers": out_flight["layovers"],
+                        "outbound_nonstop": out_flight["is_nonstop"],
+                        "outbound_duration_minutes": out_flight["total_duration_minutes"],
+                        "return_segments": in_flight["segments"],
+                        "return_layovers": in_flight["layovers"],
+                        "return_nonstop": in_flight["is_nonstop"],
+                        "return_duration_minutes": in_flight["total_duration_minutes"],
+                        "cabin_class": cabin_class,
+                        "price_per_person": round(pp, 2),
+                        "total_price": round(total, 2),
+                        "passengers": passengers,
+                        "departure_date": departure_date,
+                        "return_date": return_date,
+                        "booking_url": booking_links["google_flights"],
+                        "booking_links": booking_links,
+                        "currency_code": _DETECTED_CURRENCY,
+                        "currency_symbol": _DETECTED_SYMBOL,
+                    })
+
+            combined.sort(key=lambda x: x["total_price"])
+            return combined[:max_results]
+    except Exception:
+        logger.exception("Fallback two-one-way search also failed for %s ↔ %s.", origin, destination)
+
+    logger.error("All round-trip search attempts exhausted for %s ↔ %s.", origin, destination)
+    return []
+
+
 # ── Quick self-test ──────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -602,6 +1168,11 @@ if __name__ == "__main__":
     print("✓ All aggregator booking links generated correctly")
     for name, url in links.items():
         print(f"  {name}: {url[:80]}...")
+
+    # Test round-trip booking URL generation
+    rt_links = _build_booking_links("YYZ", "NRT", "2026-06-15", return_date="2026-06-22")
+    assert "google.com/travel/flights" in rt_links["google_flights"]
+    print("✓ Round-trip booking links generated correctly")
 
     # Show example Google Flights URLs
     examples = [

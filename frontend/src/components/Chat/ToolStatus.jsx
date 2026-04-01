@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Plane, Hotel, Car, Train, Map, Loader2, Sparkles } from 'lucide-react';
+import { Plane, Hotel, Train, Map, Loader2, Sparkles } from 'lucide-react';
 
 const TOOL_META = {
   search_flights: { icon: Plane, label: 'Searching flights', color: 'text-ramp-blue' },
+  search_flights_roundtrip: { icon: Plane, label: 'Searching round-trip flights', color: 'text-ramp-blue' },
   search_hotels: { icon: Hotel, label: 'Finding hotels', color: 'text-ramp-amber' },
-  search_car_rentals: { icon: Car, label: 'Checking car rentals', color: 'text-ramp-green' },
   search_transit: { icon: Train, label: 'Looking up transit', color: 'text-ramp-green' },
   build_itinerary: { icon: Map, label: 'Building your itinerary', color: 'text-ramp-accent' },
 };
@@ -49,46 +49,46 @@ function ThinkingIndicator() {
         >
           {THINKING_PHRASES[phraseIdx]}
         </span>
-        <span className="inline-flex gap-1">
+        <span className="flex gap-0.5">
           <span className="typing-dot" style={{ animationDelay: '0ms' }} />
-          <span className="typing-dot" style={{ animationDelay: '160ms' }} />
-          <span className="typing-dot" style={{ animationDelay: '320ms' }} />
+          <span className="typing-dot" style={{ animationDelay: '150ms' }} />
+          <span className="typing-dot" style={{ animationDelay: '300ms' }} />
         </span>
       </div>
     </div>
   );
 }
 
-export default function ToolStatus({ tools, isLoading }) {
-  const hasTools = tools && tools.length > 0;
-  const showThinking = isLoading && !hasTools;
+function ToolPill({ name }) {
+  const meta = TOOL_META[name];
+  if (!meta) return null;
 
-  if (!isLoading && !hasTools) return null;
+  const Icon = meta.icon;
 
   return (
-    <div className="space-y-2 animate-fade-in">
-      {/* Thinking placeholder — shown before any specific tool fires */}
-      {showThinking && <ThinkingIndicator />}
+    <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-ramp-surface border border-ramp-border animate-fade-in">
+      <Loader2 size={12} className={`${meta.color} animate-spin`} />
+      <Icon size={12} className={meta.color} />
+      <span className="text-xs font-medium text-ramp-text-secondary">{meta.label}</span>
+    </div>
+  );
+}
 
-      {/* Active tool pills */}
-      {hasTools && (
+export default function ToolStatus({ tools, isLoading }) {
+  if (!isLoading && (!tools || tools.length === 0)) return null;
+
+  const activeKnownTools = (tools || []).filter((t) => TOOL_META[t]);
+
+  return (
+    <div className="space-y-2">
+      {activeKnownTools.length > 0 ? (
         <div className="flex flex-wrap gap-2">
-          {tools.map((tool, i) => {
-            const meta = TOOL_META[tool] || { icon: Loader2, label: tool, color: 'text-ramp-text-secondary' };
-            const Icon = meta.icon;
-            return (
-              <div
-                key={`${tool}-${i}`}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full
-                           bg-ramp-surface-alt border border-ramp-border text-xs font-medium text-ramp-text-secondary"
-              >
-                <Icon size={13} className={`${meta.color} animate-spin-slow`} />
-                <span>{meta.label}</span>
-                <Loader2 size={11} className="animate-spin text-ramp-text-tertiary" />
-              </div>
-            );
-          })}
+          {activeKnownTools.map((tool, i) => (
+            <ToolPill key={`${tool}-${i}`} name={tool} />
+          ))}
         </div>
+      ) : (
+        isLoading && <ThinkingIndicator />
       )}
     </div>
   );
