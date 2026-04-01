@@ -12,7 +12,7 @@ import logging
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 from agents.travel_agent import run_agent, run_agent_streaming
 from agents.tools import SYSTEM_PROMPT
-from services.supabase_client import (
+from services.firebase_client import (
     create_conversation,
     get_conversations,
     save_message,
@@ -178,3 +178,4 @@ def conversation_messages(conversation_id):
         return jsonify({"error": "Authentication required"}), 401
     msgs = get_messages(conversation_id)
     return jsonify({"messages": msgs})
+

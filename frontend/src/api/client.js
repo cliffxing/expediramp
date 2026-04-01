@@ -8,8 +8,6 @@ function getHeaders(token) {
   return h;
 }
 
-// ── Chat ────────────────────────────────────────────────────────
-
 export async function sendMessage({ message, history, conversationId, token }) {
   const res = await fetch(`${API_BASE}/chat`, {
     method: 'POST',
@@ -69,11 +67,10 @@ export async function sendMessageStream({ message, history, conversationId, toke
             break;
           case 'error': onError?.(event.data); break;
         }
-      } catch { /* skip malformed lines */ }
+      } catch {}
     }
   }
 
-  // Process any remaining data in the buffer
   if (buffer.startsWith('data: ')) {
     try {
       const event = JSON.parse(buffer.slice(6));
@@ -88,42 +85,12 @@ export async function sendMessageStream({ message, history, conversationId, toke
           break;
         case 'error': onError?.(event.data); break;
       }
-    } catch { /* skip malformed line */ }
+    } catch {}
   }
 
-  // Safety net: if stream ended without a done event, fire onDone
-  // so the UI doesn't get permanently stuck in loading state
   if (!doneReceived) {
     onDone?.({});
   }
-}
-
-// ── Auth ────────────────────────────────────────────────────────
-
-export async function login(email, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || 'Login failed');
-  }
-  return res.json();
-}
-
-export async function signup(email, password) {
-  const res = await fetch(`${API_BASE}/auth/signup`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
-  });
-  if (!res.ok) {
-    const data = await res.json();
-    throw new Error(data.error || 'Signup failed');
-  }
-  return res.json();
 }
 
 export async function getMe(token) {
@@ -133,8 +100,6 @@ export async function getMe(token) {
   if (!res.ok) throw new Error('Not authenticated');
   return res.json();
 }
-
-// ── Conversations ───────────────────────────────────────────────
 
 export async function getConversations(token) {
   const res = await fetch(`${API_BASE}/conversations`, {

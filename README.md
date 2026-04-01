@@ -1,220 +1,243 @@
-# ExpediRamp — Modern Travel Runs on ExpediRamp
+# ExpediRamp
 
-AI-powered travel agent that plans complete trip itineraries from plain-text descriptions. Searches real flights, hotels, and transportation, then presents everything in a visual timeline with photos, prices, and booking links.
+ExpediRamp is a React + Flask travel planner that streams AI trip planning results, saves signed-in users' trip history, and now uses Firebase for authentication and persistence.
+
+## What changed
+
+- Supabase auth was replaced with Firebase Authentication.
+- Supabase conversation storage was replaced with Cloud Firestore.
+- The signup flow now uses Firebase's `createUserWithEmailAndPassword`, so an email that already exists is rejected cleanly instead of creating a broken duplicate-signup state.
+- The backend now verifies Firebase ID tokens with the Firebase Admin SDK before returning user-specific data.
 
 ## Architecture
 
-```
-frontend/  (React + Vite + Tailwind)
-  └── Chat UI → streams SSE from backend
-backend/   (Flask + OpenAI function-calling)
-  └── Travel agent loop → calls Booking.com API → builds itinerary
-database/  (Supabase — Postgres + Auth)
-  └── Conversations, messages, saved itineraries
+```text
+frontend/  React + Vite + Tailwind + Firebase Web SDK
+backend/   Flask + OpenAI + Firebase Admin SDK
+storage/   Cloud Firestore
+auth/      Firebase Authentication (Email/Password)
 ```
 
----
+## Prerequisites
 
-## 1. API Keys — What You Need
+- Node.js 18+
+- Python 3.11+
+- A Firebase project
+- An OpenAI API key
+- Optional: RapidAPI Booking.com key and SerpAPI key
 
-### Required
+## Exact Firebase setup
 
-| Service | Free tier | Sign-up |
-|---------|-----------|---------|
-| **OpenAI** | Pay-as-you-go | https://platform.openai.com/api-keys |
+These steps follow the current Firebase docs for web setup, email/password auth, Admin SDK setup, Firestore creation, and ID-token verification:
 
-### Flight Data (primary: Booking.com via RapidAPI)
+- Web app setup: [Add Firebase to your JavaScript project](https://firebase.google.com/docs/web/setup)
+- Email/password auth: [Authenticate with Firebase using Password-Based Accounts](https://firebase.google.com/docs/auth/web/password-auth)
+- Admin SDK credentials: [Add the Firebase Admin SDK to your server](https://firebase.google.com/docs/admin/setup)
+- Backend token verification: [Verify ID Tokens](https://firebase.google.com/docs/auth/admin/verify-id-tokens)
+- Firestore database creation: [Manage databases](https://firebase.google.com/docs/firestore/manage-databases)
 
-| Service | Free tier | Sign-up |
-|---------|-----------|---------|
-| **RapidAPI (Booking.com)** | Free plan available | https://rapidapi.com/DataCrawler/api/booking-com15 |
+### 1. Create the Firebase project
 
-> **Recommendation**: Sign up at RapidAPI, subscribe to the **Booking COM** API (by DataCrawler), and copy your `X-RapidAPI-Key`. The free plan works for development.
+1. Open the [Firebase console](https://console.firebase.google.com/).
+2. Click `Create a project`.
+3. Give it a name.
+4. Analytics is optional for this app. You can leave it off if you just want auth + Firestore.
+5. Wait for the project to finish provisioning.
 
-### Hotel Data
+Firebase's web setup guide says you first create a Firebase project, then register your web app, and Firebase gives you the config object used by the frontend.
 
-| Service | Free tier | Sign-up |
-|---------|-----------|---------|
-| **SerpAPI** | 100 searches/month | https://serpapi.com |
+### 2. Register the web app
 
-### Optional
+1. In the Firebase project overview, click the web icon `</>`.
+2. App nickname: use `expediramp-web`.
+3. Click `Register app`.
+4. Copy the Firebase config values shown on screen.
 
-| Service | Purpose |
-|---------|---------|
-| **Supabase** | Auth + conversation history. Without it the app works fine but nothing is saved between sessions. |
+You will use those values in `frontend/.env.local`.
 
----
+### 3. Enable Email/Password auth
 
-## 2. RapidAPI Setup (Primary — Booking.com Flights)
+1. In Firebase console, open `Authentication`.
+2. Open the `Sign-in method` tab.
+3. Enable `Email/Password`.
+4. Click `Save`.
 
-The Booking.com API on RapidAPI provides real-time flight search with rich data including airline logos, per-segment details, layover info, and booking links.
+The Firebase auth docs explicitly call out this exact flow before using `createUserWithEmailAndPassword` and `signInWithEmailAndPassword`.
 
-1. Go to https://rapidapi.com and create a free account.
-2. Subscribe to **Booking COM** (booking-com15) by DataCrawler.
-3. Copy your **X-RapidAPI-Key** from the dashboard.
-4. Add to your `.env`:
-   ```
-   RAPIDAPI_KEY=your-rapidapi-key-here
-   ```
+### 4. Create Firestore
 
-### What Booking.com provides
+1. In Firebase console, open `Firestore Database`.
+2. Click `Create database`.
+3. Use the default database.
+4. Pick a region close to your users.
+5. Finish the wizard.
 
-| Feature | Details |
-|---------|---------|
-| **Flights** | searchFlights endpoint — real-time prices, segments, layovers, cabin classes, airline logos |
-| **Booking** | Booking tokens that redirect to Booking.com checkout |
+This app uses Firestore from the backend only, so you do not need to build client-side Firestore queries for the current feature set.
 
-### Fallback: fast-flights
+### 5. Generate the Admin SDK service account key
 
-If the Booking.com API is unavailable (no key set, rate limited, or errors), the system automatically falls back to **fast-flights**, a Google Flights scraper that requires no API key. The data quality is slightly lower but it ensures the app always works.
+1. In Firebase console, open `Project settings`.
+2. Open the `Service accounts` tab.
+3. Click `Generate new private key`.
+4. Save the downloaded JSON somewhere outside version control.
 
----
+Firebase's Admin SDK docs recommend using service account credentials for trusted server environments.
 
-## 3. SerpAPI Setup (Hotels)
+## Environment files
 
-Used for hotel search.
+This repo now uses two env files:
 
-1. Go to https://serpapi.com and sign up.
-2. Copy your API key from the dashboard.
-3. Add to `.env`: `SERPAPI_KEY=your-key`
+- Root `.env` for Flask/backend secrets
+- `frontend/.env.local` for Vite/Firebase web config
 
----
+### Backend `.env`
 
-## 4. Quick Start
+Copy the template:
 
 ```bash
-# Clone and enter the project
-cd expediramp-out
-
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp ../.env.example ../.env
-# Edit .env with your keys
-python app.py
-
-# Frontend (separate terminal)
-cd frontend
-npm install
-cp .env .env.local              # edit VITE_API_URL if needed
-npm run dev
+Copy-Item .env.example .env
 ```
 
-Open http://localhost:5173 and start planning a trip!
-
----
-
-## 5. Environment Variables Reference
+Set these values:
 
 ```env
-# Required
 OPENAI_API_KEY=sk-...
-
-# RapidAPI (primary flight search — Booking.com)
 RAPIDAPI_KEY=your-rapidapi-key
-
-# SerpAPI (hotel search)
-SERPAPI_KEY=
-
-# Supabase (optional — auth & persistence)
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=...
-SUPABASE_SERVICE_ROLE_KEY=...
-
-# Flask
+SERPAPI_KEY=your-serpapi-key
 FLASK_SECRET_KEY=change-me
 FLASK_ENV=development
 FLASK_PORT=5001
 FRONTEND_URL=http://localhost:5173
+
+# Preferred option: point to the downloaded service-account JSON
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH=C:\\path\\to\\firebase-service-account.json
+
+# Optional alternative instead of FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
 
----
+Use either:
 
-## 6. API Priority Chain
+- `FIREBASE_SERVICE_ACCOUNT_KEY_PATH`, or
+- the inline trio `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY`
 
-```
-User asks for flights
-        │
-        ▼
-  RAPIDAPI_KEY set?
-     YES → call Booking.com searchFlights ──fails──► fast-flights (Google Flights scraper)
-      NO → fast-flights directly                        │
-                                                    ──fails──► empty results (never fake data)
-```
+### Frontend `frontend/.env.local`
 
-```
-User asks for hotels
-        │
-        ▼
-  SERPAPI_KEY set?
-     YES → call SerpAPI Google Hotels
-      NO → mock hotel data
+Copy the template:
+
+```bash
+cd frontend
+Copy-Item .env.example .env.local
 ```
 
----
+Then fill in:
 
-## 7. Project Structure
-
-```
-expediramp-out/
-├── backend/
-│   ├── app.py                    Flask entry point
-│   ├── config.py                 Environment config (RapidAPI key, etc.)
-│   ├── requirements.txt
-│   ├── agents/
-│   │   ├── travel_agent.py       OpenAI function-calling agent loop
-│   │   └── tools.py              Tool definitions + system prompt
-│   ├── services/
-│   │   ├── flight_service.py     ★ Booking.com via RapidAPI → fast-flights fallback
-│   │   ├── hotel_service.py      SerpAPI Google Hotels → mock fallback
-│   │   ├── car_service.py        Car rental & transit
-│   │   └── supabase_client.py    Auth + DB helpers
-│   └── routes/
-│       ├── chat.py               /api/chat and /api/chat/stream
-│       └── auth.py               /api/auth/...
-├── frontend/
-│   └── src/
-│       ├── App.jsx
-│       ├── components/
-│       │   ├── Chat/             Chat input, messages, tool status
-│       │   ├── Timeline/         Itinerary timeline component
-│       │   ├── Auth/             Login/signup modal
-│       │   └── Layout/           Header
-│       └── api/client.js         API wrapper
-└── database/
-    └── schema.sql                Supabase schema
+```env
+VITE_API_URL=http://localhost:5001/api
+VITE_FIREBASE_API_KEY=your-web-api-key
+VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=your-project-id
+VITE_FIREBASE_APP_ID=your-web-app-id
+VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
 ```
 
-★ = updated in Booking.com RapidAPI integration
+All of these values come from the Firebase web app registration screen or Project settings.
 
----
+## Install and run
 
-## 8. Example Conversation
+### Backend
 
-```
-User:  I want to fly from Toronto to Tokyo in mid-April for 10 days,
-       2 adults, mid-range budget.
-
-Agent: [calls search_flights(origin=YYZ, destination=NRT, ...)]
-       [calls search_hotels(city=Tokyo, ...)]
-       [calls build_itinerary(...)]
-
-       Here's your Tokyo trip! I found a great Air Canada flight
-       with one stop in Vancouver for $1,240/person. For accommodation,
-       the Shinjuku Granbell Hotel checks all your boxes at $165/night...
+```bash
+cd backend
+python -m venv venv
+# Windows PowerShell
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python app.py
 ```
 
----
+Backend runs on `http://localhost:5001` by default.
 
-## 9. Troubleshooting
+### Frontend
 
-| Problem | Fix |
-|---------|-----|
-| `RAPIDAPI_KEY is not set` | Add your RapidAPI key to `.env` from https://rapidapi.com |
-| Booking.com returns 403 | Your RapidAPI plan may be exhausted or the key is invalid |
-| Booking.com returns 0 results | The route may not be in their inventory — fast-flights fallback will be used automatically |
-| No hotel results for a city | City may not be in the SerpAPI search results |
-| `fast-flights` also returns 0 | Google may be blocking scraping — try again later |
-| SerpAPI fallback used unexpectedly | Check Booking.com logs — usually a rate limit or network timeout |
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173`.
+
+## Firestore data model
+
+No manual SQL schema is required anymore. The backend creates documents on demand in these collections:
+
+- `conversations`
+- `conversations/{conversationId}/messages`
+- `itineraries`
+
+Each signed-in user's conversation list is filtered server-side after Firebase ID token verification.
+
+## How auth works now
+
+1. The frontend signs users in with Firebase Auth.
+2. Firebase returns an ID token for the signed-in user.
+3. The frontend sends that token to Flask in the `Authorization: Bearer <token>` header.
+4. Flask verifies the token with `firebase_admin.auth.verify_id_token(...)`.
+5. If verification succeeds, the backend loads or writes that user's Firestore data.
+
+That follows Firebase's recommended backend flow for custom servers: send the client's ID token over HTTPS, then verify it server-side with the Admin SDK.
+
+## Duplicate-signup bug fix
+
+The old signup flow proxied to Supabase and could leave the UI in a bad state when an address already existed. The new signup flow uses Firebase Authentication directly in the frontend and maps `auth/email-already-in-use` to a clear error message:
+
+- `An account with this email already exists. Sign in instead.`
+
+That means an existing email can no longer silently "sign up" again.
+
+## Migration notes
+
+- Existing Supabase users are not automatically migrated by this code change.
+- Existing Supabase conversation history is not imported into Firestore by this change.
+- If you want, the next step can be a one-time migration script from Supabase Auth + tables into Firebase Auth + Firestore.
+
+## Troubleshooting
+
+### `Invalid token`
+
+Usually means one of these:
+
+- frontend is pointed at one Firebase project and backend service-account creds point at another
+- backend `.env` is missing Firebase Admin credentials
+- frontend `.env.local` still contains old values
+
+### Firebase signup/login works but saved trips do not
+
+Usually means:
+
+- Firestore was not created yet
+- backend is not using valid Admin SDK credentials
+- backend needs a restart after editing `.env`
+
+### `Module not found: firebase`
+
+Run:
+
+```bash
+cd frontend
+npm install
+```
+
+### Python import errors for Firebase Admin
+
+Run:
+
+```bash
+cd backend
+.\venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+```
+

@@ -9,8 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.49.0",
     "@tailwindcss/typography": "^0.5.19",
+    "firebase": "^11.6.1",
     "framer-motion": "^12.0.0",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",

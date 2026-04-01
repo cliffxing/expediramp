@@ -49,3 +49,4 @@ yarn-error.log*
 *.bak
 *.tmp
 .cache/
+.secrets/
