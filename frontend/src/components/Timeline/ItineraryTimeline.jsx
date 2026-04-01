@@ -412,6 +412,12 @@ function FlightCard({ item }) {
 
 function HotelCard({ item }) {
   const d = item.details || {};
+  const fallbackImage = "https://ontariosings.com/wp-content/uploads/2023/07/hotel-placeholder.jpg";
+  const [imageErrorLevel, setImageErrorLevel] = useState(0);
+
+  const showImage = item.image_url && imageErrorLevel < 2;
+  const currentImage = imageErrorLevel === 0 ? item.image_url : fallbackImage;
+
   return (
     <a
       href={item.booking_url}
@@ -420,12 +426,13 @@ function HotelCard({ item }) {
       className="group block rounded-xl border border-ramp-border bg-ramp-surface overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-200"
     >
       {/* Photo */}
-      {item.image_url && (
+      {showImage && (
         <div className="h-44 overflow-hidden relative">
           <img
-            src={item.image_url}
+            src={currentImage}
             alt={item.title}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+            onError={() => setImageErrorLevel(prev => prev + 1)}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
           {/* Stars badge */}
@@ -452,7 +459,7 @@ function HotelCard({ item }) {
               {d.neighborhood || d.city}
             </p>
           </div>
-          {!item.image_url && (
+          {!showImage && (
             <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost, item)}</p>
           )}
         </div>
