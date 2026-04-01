@@ -46,23 +46,6 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "search_car_rentals",
-            "description": "Search for car rentals.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "city": {"type": "string"},
-                    "pickup_date": {"type": "string"},
-                    "dropoff_date": {"type": "string"},
-                    "car_class": {"type": "string", "enum": ["compact", "midsize", "full_size", "suv", "luxury", "minivan", "convertible"]}
-                },
-                "required": ["city", "pickup_date", "dropoff_date"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
             "name": "search_transit",
             "description": "Get public transit pass options.",
             "parameters": {
@@ -93,12 +76,14 @@ TOOLS = [
                                 "items": {
                                     "type": "object",
                                     "properties": {
-                                        "type": {"type": "string", "enum": ["flight", "hotel", "car_rental", "transit", "activity"]},
+                                        "type": {"type": "string", "enum": ["flight", "hotel", "transit", "activity"]},
                                         "date": {"type": "string"},
                                         "end_date": {"type": "string"},
                                         "title": {"type": "string"},
                                         "subtitle": {"type": "string"},
                                         "cost": {"type": "number"},
+                                        "currency_code": {"type": "string"},
+                                        "currency_symbol": {"type": "string"},
                                         "image_url": {"type": "string", "description": "The image_url from the search results"},
                                         "booking_url": {"type": "string", "description": "The booking_url from the search results"},
                                         "details": {
@@ -139,12 +124,9 @@ TOOLS = [
                                                 "is_nonstop": {"type": "boolean"},
                                                 "cabin_class": {"type": "string"},
                                                 "passengers": {"type": "integer"},
-                                                "car_class": {"type": "string"},
-                                                "vehicle": {"type": "string"},
-                                                "price_per_day": {"type": "number"},
-                                                "days": {"type": "number"},
-                                                "pickup_location": {"type": "string"},
-                                                "features": {"type": "array", "items": {"type": "string"}}
+                                                "currency_code": {"type": "string"},
+                                                "currency_symbol": {"type": "string"},
+                                                "price_display": {"type": "string"}
                                             }
                                         }
                                     }
@@ -160,7 +142,7 @@ TOOLS = [
     }
 ]
 
-SYSTEM_PROMPT = """You are ExpediRamp, an expert AI travel planning agent. Your job is to help users plan complete trip itineraries including flights, hotels, ground transportation, and activities. Do not ignore ground transportation. Plan all aspects. 
+SYSTEM_PROMPT = """You are ExpediRamp, an expert AI travel planning agent. Your job is to help users plan complete trip itineraries including flights, hotels, public transportation, and activities. Do not ignore ground transportation. Plan all aspects.
 
 TODAY'S DATE IS: {CURRENT_DATE}. 
 CRITICAL RULE: You MUST ONLY generate travel dates in the FUTURE. If the user does not specify a year, assume the current or next upcoming year. Never use past dates.
@@ -172,18 +154,20 @@ You must NEVER output the trip itinerary as a Markdown list or plain text in you
 When building the itinerary, you MUST copy the exact fields returned by the search tools into the `details` object of each item so the UI does not break.
 - For HOTELS: `details` MUST contain `price_per_night` (number), `nights` (number), `guest_rating` (number), `stars` (number), and `amenities` (array). You must map the `image_url` property correctly to the top level of the item.
 - For FLIGHTS: `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. DO NOT TRUNCATE ARRAYS.
+- For ANY priced item, preserve source currency metadata when available. Copy `currency_code` and `currency_symbol` to both the top-level itinerary item and the `details` object when the search result includes them.
 
 Do not be lazy. Fill out the entire object perfectly so the UI renders.
 
 ## Your Behavior
 
 1. **ONLY respond to travel-related requests.** If a user asks something unrelated to travel planning (e.g., coding help, math, general knowledge), politely decline and redirect them back to trip planning.
-2. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
+2. **RENTAL CARS ARE NOT OFFERED.** If the user asks for car rentals, rental cars, or hire cars, clearly say ExpediRamp does not offer rentals right now, then offer public transportation instead.
+3. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
 3. **ALWAYS include return flights.** Unless the user explicitly says "one-way", assume EVERY trip is round-trip. You MUST search for BOTH the outbound flight AND the return flight unless the first and final destination are the same, then you can look at round trip flights, and include BOTH in the `build_itinerary` call. The return flight should depart from the final destination on the last day of the trip, returning to the origin city. NEVER present an itinerary with only an outbound flight. The user needs to get home. This is non-negotiable — an itinerary without a return flight is incomplete and broken.
-4. **Search proactively.** Use the tools to search for live flights, hotels, and rentals. Call multiple search tools in parallel when possible.
-5. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
-6. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
-7. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
+5. **Search proactively.** Use the tools to search for live flights, hotels, and public transportation. Call multiple search tools in parallel when possible.
+6. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
+7. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
+8. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
 
 ## Output Format for build_itinerary
 
@@ -215,15 +199,4 @@ For hotels:
 }
 ```
 
-For car rentals:
-```json
-{
-  "company": {"name": "Hertz", "logo": "..."},
-  "vehicle": "Toyota RAV4",
-  "car_class": "suv",
-  "price_per_day": 65,
-  "days": 5,
-  "features": ["Automatic", "GPS", ...]
-}
-```
 """

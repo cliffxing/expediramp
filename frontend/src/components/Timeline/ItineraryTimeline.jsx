@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import {
-  Plane, Hotel, Car, Train, MapPin, ExternalLink, Clock,
+  Plane, Hotel, Train, MapPin, ExternalLink, Clock,
   ChevronDown, ChevronUp, Star,
-  Users, Calendar, DollarSign, ArrowRight, Navigation
+  Users, Calendar, ArrowRight, Navigation
 } from 'lucide-react';
 
 // ── Utilities ─────────────────────────────────────────────────
@@ -14,9 +14,43 @@ function formatDuration(minutes) {
   return h > 0 ? `${h}h ${m > 0 ? m + 'm' : ''}` : `${m}m`;
 }
 
-function formatCurrency(amount) {
+function getCurrencyMeta(source = {}) {
+  const currencyCode = source.currency_code || source.currencyCode || 'USD';
+  const currencySymbol = source.currency_symbol || source.currencySymbol || currencyCode;
+  return { currencyCode, currencySymbol };
+}
+
+function getItemCurrency(item) {
+  return getCurrencyMeta({ ...(item?.details || {}), ...(item || {}) });
+}
+
+function formatCurrency(amount, source = {}) {
   if (!amount && amount !== 0) return '$0';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
+
+  const { currencyCode, currencySymbol } = getCurrencyMeta(source);
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return `${currencySymbol} ${amount}`;
+  }
+}
+
+function getItineraryCurrencyState(items) {
+  const currencies = [...new Set(
+    items
+      .filter((item) => item.cost > 0)
+      .map((item) => getItemCurrency(item).currencyCode)
+  )];
+
+  if (currencies.length === 1) {
+    return { mixed: false, currencyCode: currencies[0] };
+  }
+
+  return { mixed: currencies.length > 1, currencyCode: currencies[0] || 'USD' };
 }
 
 function formatDate(dateStr) {
@@ -34,7 +68,6 @@ function formatDate(dateStr) {
 const DOT_STYLES = {
   flight:     { bg: 'bg-blue-500',   ring: 'ring-blue-100',   icon: Plane,      iconColor: 'text-blue-500' },
   hotel:      { bg: 'bg-amber-500',  ring: 'ring-amber-100',  icon: Hotel,      iconColor: 'text-amber-500' },
-  car_rental: { bg: 'bg-emerald-500',ring: 'ring-emerald-100',icon: Car,        iconColor: 'text-emerald-500' },
   transit:    { bg: 'bg-violet-500', ring: 'ring-violet-100', icon: Train,      iconColor: 'text-violet-500' },
   activity:   { bg: 'bg-gray-400',   ring: 'ring-gray-100',   icon: Navigation, iconColor: 'text-gray-500' },
 };
@@ -85,7 +118,7 @@ function FlightCard({ item }) {
               </div>
             </div>
             <div className="text-right flex-shrink-0">
-              <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost)}</p>
+              <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
               <ExternalLink size={12} className="text-ramp-text-tertiary ml-auto opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </div>
@@ -225,7 +258,7 @@ function HotelCard({ item }) {
           )}
           {/* Price badge */}
           <div className="absolute bottom-3 right-3 bg-white/90 backdrop-blur-sm rounded-lg px-2.5 py-1">
-            <p className="text-sm font-bold text-ramp-text">{formatCurrency(item.cost)}</p>
+            <p className="text-sm font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
           </div>
         </div>
       )}
@@ -240,7 +273,7 @@ function HotelCard({ item }) {
             </p>
           </div>
           {!item.image_url && (
-            <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost)}</p>
+            <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost, item)}</p>
           )}
         </div>
 
@@ -252,7 +285,7 @@ function HotelCard({ item }) {
               {d.guest_rating}
             </span>
           )}
-          <span>{formatCurrency(d.price_per_night)}/night</span>
+          <span>{formatCurrency(d.price_per_night, item)}/night</span>
           <span>{d.nights} night{d.nights > 1 ? 's' : ''}</span>
           {d.cancellation_policy?.toLowerCase().includes('free') && (
             <span className="text-emerald-600 font-medium">✓ Free cancel</span>
@@ -318,8 +351,8 @@ function CarRentalCard({ item }) {
             </p>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost)}</p>
-            <p className="text-[10px] text-ramp-text-tertiary">{formatCurrency(d.price_per_day)}/day · {d.days}d</p>
+            <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
+            <p className="text-[10px] text-ramp-text-tertiary">{formatCurrency(d.price_per_day, item)}/day · {d.days}d</p>
           </div>
         </div>
         {d.features && d.features.length > 0 && (
@@ -343,11 +376,14 @@ function CarRentalCard({ item }) {
 // ── Transit Card ──────────────────────────────────────────────
 
 function TransitCard({ item }) {
+  const Wrapper = item.booking_url ? 'a' : 'div';
+  const wrapperProps = item.booking_url
+    ? { href: item.booking_url, target: '_blank', rel: 'noopener noreferrer' }
+    : {};
+
   return (
-    <a
-      href={item.booking_url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <Wrapper
+      {...wrapperProps}
       className="group block rounded-xl border border-ramp-border bg-ramp-surface px-5 py-4 shadow-sm hover:shadow-md transition-shadow duration-200"
     >
       <div className="flex items-center justify-between gap-3">
@@ -361,11 +397,11 @@ function TransitCard({ item }) {
           </div>
         </div>
         <div className="text-right flex-shrink-0 flex items-center gap-2">
-          <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost)}</p>
+          <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
           <ExternalLink size={12} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       </div>
-    </a>
+    </Wrapper>
   );
 }
 
@@ -393,7 +429,7 @@ function ActivityCard({ item }) {
           </div>
         </div>
         {item.cost > 0 && (
-          <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost)}</p>
+          <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost, item)}</p>
         )}
       </div>
     </Wrapper>
@@ -414,11 +450,10 @@ function TimelineDot({ type }) {
 
 // ── Timeline Item Router ──────────────────────────────────────
 
-function TimelineItem({ item, index, isLast, runningCost }) {
+function TimelineItem({ item, index, isLast, runningCost, mixedCurrencies }) {
   const cardMap = {
     flight: FlightCard,
     hotel: HotelCard,
-    car_rental: CarRentalCard,
     transit: TransitCard,
     activity: ActivityCard,
   };
@@ -443,7 +478,7 @@ function TimelineItem({ item, index, isLast, runningCost }) {
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-ramp-text-secondary">{formatDate(item.date)}</span>
           <span className="text-[10px] text-ramp-text-tertiary">
-            Running: {formatCurrency(runningCost)}
+            {mixedCurrencies ? 'Running total unavailable' : `Running: ${formatCurrency(runningCost, item)}`}
           </span>
         </div>
 
@@ -460,6 +495,7 @@ export default function ItineraryTimeline({ itinerary }) {
 
   const items = itinerary.items || [];
   const totalCost = itinerary.total_cost || items.reduce((sum, i) => sum + (i.cost || 0), 0);
+  const itineraryCurrency = getItineraryCurrencyState(items);
 
   // Calculate running costs
   let running = 0;
@@ -498,7 +534,9 @@ export default function ItineraryTimeline({ itinerary }) {
             </div>
             <div className="flex-shrink-0 text-right bg-white/70 backdrop-blur-sm rounded-xl px-4 py-3 border border-ramp-border">
               <p className="text-[10px] text-ramp-text-tertiary font-medium uppercase tracking-wider">Total</p>
-              <p className="text-2xl font-bold text-ramp-text">{formatCurrency(totalCost)}</p>
+              <p className="text-2xl font-bold text-ramp-text">
+                {itineraryCurrency.mixed ? 'Mixed currencies' : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode })}
+              </p>
             </div>
           </div>
         </div>
@@ -513,6 +551,7 @@ export default function ItineraryTimeline({ itinerary }) {
             index={idx}
             isLast={idx === items.length - 1}
             runningCost={runningCosts[idx]}
+            mixedCurrencies={itineraryCurrency.mixed}
           />
         ))}
       </div>
@@ -528,11 +567,13 @@ export default function ItineraryTimeline({ itinerary }) {
               <p className="text-xs text-ramp-text-tertiary mt-0.5">
                 {items.filter(i => i.type === 'flight').length} flight{items.filter(i => i.type === 'flight').length !== 1 ? 's' : ''} ·{' '}
                 {items.filter(i => i.type === 'hotel').length} hotel{items.filter(i => i.type === 'hotel').length !== 1 ? 's' : ''} ·{' '}
-                {items.filter(i => ['car_rental', 'transit'].includes(i.type)).length} transport
+                {items.filter(i => i.type === 'transit').length} transit
               </p>
             </div>
             <div className="text-right">
-              <p className="text-3xl font-bold text-ramp-text">{formatCurrency(totalCost)}</p>
+              <p className="text-3xl font-bold text-ramp-text">
+                {itineraryCurrency.mixed ? 'Mixed currencies' : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode })}
+              </p>
             </div>
           </div>
         </div>
@@ -549,7 +590,7 @@ export default function ItineraryTimeline({ itinerary }) {
                     <Icon size={12} className={dotStyle.iconColor} />
                     {item.title}
                   </span>
-                  <span className="font-semibold text-ramp-text tabular-nums">{formatCurrency(item.cost)}</span>
+                  <span className="font-semibold text-ramp-text tabular-nums">{formatCurrency(item.cost, item)}</span>
                 </div>
               );
             })}

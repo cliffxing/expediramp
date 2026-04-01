@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Plane, Hotel, Car, Train, Map, Loader2, Sparkles } from 'lucide-react';
+import { Plane, Hotel, Train, Map, Loader2, Sparkles } from 'lucide-react';
 
 const TOOL_META = {
   search_flights: { icon: Plane, label: 'Searching flights', color: 'text-ramp-blue' },
   search_hotels: { icon: Hotel, label: 'Finding hotels', color: 'text-ramp-amber' },
-  search_car_rentals: { icon: Car, label: 'Checking car rentals', color: 'text-ramp-green' },
   search_transit: { icon: Train, label: 'Looking up transit', color: 'text-ramp-green' },
   build_itinerary: { icon: Map, label: 'Building your itinerary', color: 'text-ramp-accent' },
 };

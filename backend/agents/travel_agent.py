@@ -10,7 +10,7 @@ from config import Config
 from agents.tools import TOOLS, SYSTEM_PROMPT
 from services.flight_service import search_flights
 from services.hotel_service import search_hotels
-from services.car_service import search_car_rentals, search_transit
+from services.car_service import search_transit
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,6 @@ def _execute_tool(name: str, arguments: dict) -> str:
     try:
         if name == "search_flights": result = search_flights(**arguments)
         elif name == "search_hotels": result = search_hotels(**arguments)
-        elif name == "search_car_rentals": result = search_car_rentals(**arguments)
         elif name == "search_transit": result = search_transit(**arguments)
         elif name == "build_itinerary": result = arguments.get("itinerary", arguments)
         else: result = {"error": f"Unknown tool: {name}"}
