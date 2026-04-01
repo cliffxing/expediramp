@@ -105,7 +105,7 @@ TOOLS = [
                                         "cost": {"type": "number", "description": "Total cost of this item. For hotels, this MUST be the total_price for ALL nights, NOT the price per night."},
                                         "currency_code": {"type": "string"},
                                         "currency_symbol": {"type": "string"},
-                                        "image_url": {"type": "string", "description": "The image_url from the search results"},
+                                        "image_url": {"type": "string", "description": "The image_url from the search results. NEVER drop this field when updating an itinerary. If missing, use a fallback like https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600"},
                                         "booking_url": {"type": "string", "description": "The booking_url from the search results"},
                                         "details": {
                                             "type": "object",
@@ -193,6 +193,7 @@ CRITICAL NAMING RULES:
 - Flight `title` = "Flight from {origin_city} to {destination_city}" (e.g. "Flight from Toronto to Tokyo")
 - Transit `title` = the transit pass name from search results
 - Always copy `booking_url` and `image_url` from search results to the top level of each itinerary item.
+- CRITICAL REPROMPT RULE: When the user asks you to modify a trip, you MUST preserve the `image_url` and `booking_url` for all items that are not being changed. NEVER drop photos from memory.
 
 Do not be lazy. Fill out the entire object perfectly so the UI renders.
 
