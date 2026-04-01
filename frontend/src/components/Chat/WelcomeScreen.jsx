@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plane, Hotel, Car, MapPin, Sparkles } from 'lucide-react';
+import { Plane, Hotel, Train, MapPin, Sparkles } from 'lucide-react';
 
 const SUGGESTIONS = [
   {
@@ -15,8 +15,8 @@ const SUGGESTIONS = [
     text: 'I want to backpack through Europe for 3 weeks on a budget',
   },
   {
-    icon: Car,
-    text: 'Road trip from LA to San Francisco with stops along the coast',
+    icon: Train,
+    text: 'Plan a city break in Seoul with subway-friendly neighborhoods',
   },
 ];
 
