@@ -20,75 +20,34 @@ Currency note:
   - The fli package does NOT support a currency parameter.
   - Google Flights returns prices in the currency matching the server's IP locale.
   - We detect the likely currency via FLIGHT_CURRENCY env var or locale detection.
-  - Default: USD. Set FLIGHT_CURRENCY=CAD in .env if running from Canada.
+  - All prices are automatically converted to USD before being returned,
+    using live exchange rates (with hardcoded fallback if APIs are unreachable).
+  - Set FLIGHT_CURRENCY=CAD in .env if running from Canada (auto-detected if not set).
 """
 
 import logging
-import os
-import locale
 import re
 import urllib.parse
 import base64
 from datetime import datetime
+from services.currency_conversion import (
+    convert_flight_results_to_usd,
+    detect_source_currency,
+    _currency_symbol,
+)
 
 logger = logging.getLogger(__name__)
 
 
 # ── Currency detection ─────────────────────────────────────────
-# The fli package returns prices in whatever currency Google Flights
-# uses for the server's IP geolocation. Since there's no way to
-# control this in the API, we detect it from environment or locale.
-
-def _detect_currency() -> tuple[str, str]:
-    """
-    Detect the currency that Google Flights is likely returning.
-    
-    Priority:
-    1. FLIGHT_CURRENCY env var (explicit override, e.g. "CAD", "USD", "EUR")
-    2. Locale-based detection from the system
-    3. Default: USD
-    
-    Returns (currency_code, currency_symbol)
-    """
-    # 1. Explicit env var
-    env_currency = os.environ.get("FLIGHT_CURRENCY", "").upper().strip()
-    if env_currency:
-        return env_currency, _currency_symbol(env_currency)
-    
-    # 2. Locale detection
-    try:
-        loc = locale.getlocale()[0] or locale.getdefaultlocale()[0] or ""
-        if loc:
-            country = loc.split("_")[-1].upper() if "_" in loc else ""
-            locale_map = {
-                "CA": ("CAD", "CA$"),
-                "US": ("USD", "$"),
-                "GB": ("GBP", "£"),
-                "AU": ("AUD", "A$"),
-                "EU": ("EUR", "€"),
-                "JP": ("JPY", "¥"),
-                "IN": ("INR", "₹"),
-            }
-            if country in locale_map:
-                return locale_map[country]
-    except Exception:
-        pass
-    
-    # 3. Default
-    return "USD", "$"
-
-
-def _currency_symbol(code: str) -> str:
-    symbols = {
-        "USD": "$", "CAD": "CA$", "EUR": "€", "GBP": "£",
-        "AUD": "A$", "JPY": "¥", "INR": "₹", "CNY": "¥",
-        "KRW": "₩", "MXN": "MX$", "BRL": "R$", "CHF": "CHF",
-    }
-    return symbols.get(code, code)
-
+# Delegated to currency_conversion module which uses:
+#   1. FLIGHT_CURRENCY env var
+#   2. IP geolocation (matches what Google Flights sees)
+#   3. System locale (with Windows support)
+#   4. Default: USD
 
 # Cache at module level so we don't re-detect every call
-_DETECTED_CURRENCY, _DETECTED_SYMBOL = _detect_currency()
+_DETECTED_CURRENCY, _DETECTED_SYMBOL = detect_source_currency()
 logger.info("Flight price currency detected as: %s (%s)", _DETECTED_CURRENCY, _DETECTED_SYMBOL)
 
 
@@ -274,7 +233,6 @@ def _build_round_trip_tfs(
 ) -> str:
     """
     Build the Google Flights `tfs` query parameter for a round-trip flight search.
-
     Similar to one-way but with:
       field 2 = 1 (round-trip, not 2 = one-way)
       Two flight leg messages (outbound + return)
@@ -345,7 +303,7 @@ def _google_flights_url(
         f"?tfs={tfs}"
         f"&tfu=EgIIAQ"    # standard flag (enables full search)
         f"&hl=en"
-        f"&curr={_DETECTED_CURRENCY}"
+        f"&curr=USD"
         f"{seat_param}"
     )
 
@@ -743,7 +701,7 @@ def _search_fli_roundtrip(
         outbound_segments = _extract_segments(outbound_flight, origin, destination)
         return_segments = _extract_segments(return_flight, destination, origin)
 
-        # Build layovers for outbound
+        # Build layovers for outbound and return
         outbound_layovers = _build_layovers(outbound_segments)
         return_layovers = _build_layovers(return_segments)
 
@@ -963,6 +921,8 @@ def search_flights(
     If the primary search fails, retries with an alternate airport in the same city.
     Never returns fake/mock data — returns an empty list on total failure.
 
+    All prices are converted to USD before returning.
+
     sort_by:
       "best"     — (default) balance price + duration, filter out outlier durations
       "cheapest" — pure price sort, no duration filtering
@@ -978,7 +938,7 @@ def search_flights(
             sort_by,
         )
         if results:
-            return results
+            return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         logger.warning("Primary search %s → %s returned 0 results after filtering.", origin, destination)
     except Exception:
         logger.exception("fli primary search failed for %s → %s.", origin, destination)
@@ -997,7 +957,7 @@ def search_flights(
                 sort_by,
             )
             if results:
-                return results
+                return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         except Exception:
             logger.warning("Alternate destination %s also failed.", alt_dest)
 
@@ -1011,7 +971,7 @@ def search_flights(
                 sort_by,
             )
             if results:
-                return results
+                return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         except Exception:
             logger.warning("Alternate origin %s also failed.", alt_origin)
 
@@ -1035,6 +995,8 @@ def search_flights_roundtrip(
     If the round-trip search fails, falls back to two one-way searches
     and combines them into a single result.
 
+    All prices are converted to USD before returning.
+
     sort_by:
       "best"     — (default) balance price + duration, filter out outlier durations
       "cheapest" — pure price sort, no duration filtering
@@ -1050,7 +1012,7 @@ def search_flights_roundtrip(
             sort_by,
         )
         if results:
-            return results
+            return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         logger.warning("Primary round-trip search %s ↔ %s returned 0 results.", origin, destination)
     except Exception:
         logger.exception("fli round-trip search failed for %s ↔ %s.", origin, destination)
@@ -1066,7 +1028,7 @@ def search_flights_roundtrip(
                 sort_by,
             )
             if results:
-                return results
+                return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         except Exception:
             logger.warning("Alternate round-trip destination %s also failed.", alt_dest)
 
@@ -1080,7 +1042,7 @@ def search_flights_roundtrip(
                 sort_by,
             )
             if results:
-                return results
+                return convert_flight_results_to_usd(results, _DETECTED_CURRENCY)
         except Exception:
             logger.warning("Alternate round-trip origin %s also failed.", alt_origin)
 
@@ -1143,7 +1105,11 @@ def search_flights_roundtrip(
                     })
 
             combined.sort(key=lambda x: x["total_price"])
-            return combined[:max_results]
+            # NOTE: The outbound/inbound from search_flights() are already
+            # converted to USD, so combined prices are already in USD.
+            # We still call convert here for consistency (it's a no-op if
+            # currency_code is already USD after the one-way conversion).
+            return convert_flight_results_to_usd(combined[:max_results], _DETECTED_CURRENCY)
     except Exception:
         logger.exception("Fallback two-one-way search also failed for %s ↔ %s.", origin, destination)
 

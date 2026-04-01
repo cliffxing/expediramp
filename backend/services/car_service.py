@@ -459,11 +459,11 @@ def _search_serpapi_transit(city: str) -> list[dict]:
         raise ValueError("SERPAPI_KEY not set")
 
     # Search for transit passes in the target city
-    query = f"{city} tourist transit pass travel card public transport ticket price"
+    query = f"{city} transit pass travel card price"
     params = {
         "engine": "google_search",
         "q": query,
-        "num": "10",
+        "num": 5,
         "hl": "en",
         "gl": "us",
         "api_key": Config.SERPAPI_KEY,
