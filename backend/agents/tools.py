@@ -102,7 +102,7 @@ TOOLS = [
                                         "end_date": {"type": "string"},
                                         "title": {"type": "string"},
                                         "subtitle": {"type": "string"},
-                                        "cost": {"type": "number"},
+                                        "cost": {"type": "number", "description": "Total cost of this item. For hotels, this MUST be the total_price for ALL nights, NOT the price per night."},
                                         "currency_code": {"type": "string"},
                                         "currency_symbol": {"type": "string"},
                                         "image_url": {"type": "string", "description": "The image_url from the search results"},
@@ -184,7 +184,7 @@ You must NEVER output the trip itinerary as a Markdown list or plain text in you
 
 ## STRICT DATA REQUIREMENTS FOR `build_itinerary`
 When building the itinerary, you MUST copy the exact fields returned by the search tools into the `details` object of each item so the UI does not break.
-- For HOTELS: The `title` field of the itinerary item MUST be the actual hotel name from the search results (e.g. "Shinjuku Granbell Hotel"), NOT a generic label like "Hotel in Tokyo". The `subtitle` should include the city/neighborhood. `details` MUST contain `price_per_night` (number), `nights` (number), `guest_rating` (number), `stars` (number), and `amenities` (array). You must map the `image_url` and `booking_url` properties correctly to the top level of the item.
+- For HOTELS: The `title` field of the itinerary item MUST be the actual hotel name from the search results (e.g. "Shinjuku Granbell Hotel"), NOT a generic label like "Hotel in Tokyo". The `subtitle` should include the city/neighborhood. The top-level `cost` field MUST be the total cost for all nights (use `total_price` from the search results), NOT just the price for one night. `details` MUST contain `price_per_night` (number), `nights` (number), `guest_rating` (number), `stars` (number), and `amenities` (array). You must map the `image_url` and `booking_url` properties correctly to the top level of the item.
 - For FLIGHTS: The `title` should be the route (e.g. "Flight from Toronto to Tokyo"). `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. For ROUND-TRIP flights, you MUST also include `is_round_trip: true`, `trip_type: "round_trip"`, `outbound_segments`, `outbound_layovers`, `outbound_nonstop`, `outbound_duration_minutes`, `return_segments`, `return_layovers`, `return_nonstop`, `return_duration_minutes`, and `return_date`. DO NOT TRUNCATE ARRAYS.
 - For ANY priced item, preserve source currency metadata when available. Copy `currency_code` and `currency_symbol` to both the top-level itinerary item and the `details` object when the search result includes them.
 
