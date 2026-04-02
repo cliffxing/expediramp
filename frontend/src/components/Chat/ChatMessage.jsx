@@ -10,7 +10,7 @@ export default function ChatMessage({ role, content, isStreaming }) {
     <div className={`flex gap-3 animate-slide-up ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div
-        className={`flex-shrink-0 w-8 h-8 flex items-center justify-center
+        className={`flex-shrink-0 w-8 h-8 flex items-center justify-center overflow-hidden
           ${isUser
             ? 'bg-ramp-surface-alt border border-ramp-border'
             : 'bg-ramp-yellow'
@@ -19,7 +19,12 @@ export default function ChatMessage({ role, content, isStreaming }) {
         {isUser ? (
           <User size={14} className="text-ramp-text-secondary" />
         ) : (
-          <img src="/favicon.svg" alt="ExpediRamp" className="w-5 h-5" />
+          <img
+            src="/favicon.svg"
+            alt="ExpediRamp"
+            className="w-8 h-8 p-1.5"
+            style={{ transform: 'scale(1.45)', transformOrigin: 'center' }}
+          />
         )}
       </div>
 

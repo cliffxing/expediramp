@@ -43,7 +43,15 @@ export default function AuthModal({ onClose }) {
         </button>
 
         <div className="px-7 pt-7 pb-2">
-          <img src="/favicon.svg" alt="ExpediRamp" className="w-8 h-8 mb-4" />
+          {/* Logo — larger container with overflow hidden to crop SVG whitespace */}
+          <div className="w-12 h-12 overflow-hidden mb-4">
+            <img
+              src="/favicon.svg"
+              alt="ExpediRamp"
+              className="w-16 h-16"
+              style={{ transform: 'scale(1.35)', transformOrigin: 'center' }}
+            />
+          </div>
           <h2 className="text-lg font-bold text-ramp-text">
             {mode === 'login' ? 'Welcome back' : 'Create an account'}
           </h2>
