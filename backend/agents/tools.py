@@ -7,7 +7,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_flights",
-            "description": "Search for ONE-WAY flights between two airports. Use this for multi-city trips (A→B→C→A) where each leg is a separate one-way flight. You MUST use specific IATA airport codes (e.g., YYZ, NRT, HND, JFK), NOT generic city codes (like YTO or TYO). By default, results are ranked by best value (balancing price and reasonable travel time). Only use sort_by='cheapest' if the user explicitly asks for the cheapest flight regardless of duration.",
+            "description": "Search for ONE-WAY flights between two airports. Use this for multi-city trips (A→B→C→A) or open-jaw trips (A→B, C→A) where each leg is a separate one-way flight. You MUST use specific IATA airport codes (e.g., YYZ, NRT, HND, JFK), NOT generic city codes (like YTO or TYO). By default, results are ranked by best value (balancing price and reasonable travel time). Only use sort_by='cheapest' if the user explicitly asks for the cheapest flight regardless of duration.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -214,9 +214,12 @@ You have TWO flight search tools. Choosing the right one is essential:
 **Decision logic:**
 - User says "Toronto to Tokyo and back" → `search_flights_roundtrip(origin=YYZ, destination=NRT, departure_date=..., return_date=...)`
 - User says "Toronto → Tokyo → Osaka → Toronto" → Three calls to `search_flights`: YYZ→NRT, NRT→KIX (or ITM), KIX→YYZ
+- User flying into one city and out of another (Open-jaw, e.g. Toronto → Tokyo, Osaka → Toronto) → Two calls to `search_flights` (one-way): YYZ→NRT and KIX→YYZ.
 - If user says nothing about route complexity, assume round-trip.
 
 **ALWAYS include return flights.** Unless the user explicitly says "one-way", assume EVERY trip is round-trip.
+
+**NEVER COMBINE CONFLICTING FLIGHTS:** Never book a round-trip flight AND a separate one-way return flight in the same itinerary. If you use `search_flights_roundtrip` (A→B→A), the user already has a way home. For open-jaw trips, only use `search_flights` (one-way) calls.
 
 5. **Search proactively.** Use the tools to search for live flights, hotels, and public transportation. Call multiple search tools in parallel when possible.
 6. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
