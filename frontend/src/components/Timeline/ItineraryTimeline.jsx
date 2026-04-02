@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Plane, Hotel, Train, Navigation, MapPin, Calendar, Users,
-  ExternalLink, ChevronDown, ChevronUp, ArrowRight, Clock, Star, RotateCcw,
+  ExternalLink, ChevronDown, ChevronUp, Clock, Star, RotateCcw,
 } from 'lucide-react';
 
 // ── Formatters ────────────────────────────────────────────────
@@ -11,40 +11,32 @@ function formatCurrency(amount, item = {}) {
   const code = item.currency_code || 'USD';
   const symbol = item.currency_symbol || '$';
   const formatted = Math.round(amount).toLocaleString('en-US');
-  if (code === 'USD') return `$${formatted}`;
-  return `${symbol}${formatted}`;
+  return code === 'USD' ? `$${formatted}` : `${symbol}${formatted}`;
 }
 
 function formatDate(dateStr) {
   if (!dateStr) return '—';
   try {
-    // Append T00:00:00 for date-only strings so they parse as local midnight, not UTC midnight
     const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   } catch { return dateStr; }
 }
 
-// FIX: Parse "YYYY-MM-DD" without Date() to avoid UTC-shift on date-only strings.
 function formatShortDate(dateStr) {
   if (!dateStr) return '';
   try {
     const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
     if (match) {
       const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      const month = months[parseInt(match[2], 10) - 1];
-      const day = parseInt(match[3], 10);
-      return `${month} ${day}`;
+      return `${months[parseInt(match[2], 10) - 1]} ${parseInt(match[3], 10)}`;
     }
     return dateStr;
   } catch { return ''; }
 }
 
-// FIX: Parse "YYYY-MM-DD HH:MM" with a regex instead of passing through new Date(),
-// which would re-interpret the local airport time in the browser's own timezone.
 function formatTime(dateTimeStr) {
   if (!dateTimeStr) return '—';
   try {
-    // Handles "YYYY-MM-DD HH:MM" and "YYYY-MM-DDTHH:MM" formats
     const match = dateTimeStr.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
     if (match) {
       let hours = parseInt(match[2], 10);
@@ -53,7 +45,6 @@ function formatTime(dateTimeStr) {
       hours = hours % 12 || 12;
       return `${hours}:${minutes} ${ampm}`;
     }
-    // Fallback for bare "HH:MM" strings
     if (/^\d{2}:\d{2}$/.test(dateTimeStr)) {
       let [h, m] = dateTimeStr.split(':').map(Number);
       const ampm = h >= 12 ? 'PM' : 'AM';
@@ -61,9 +52,7 @@ function formatTime(dateTimeStr) {
       return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
     }
     return dateTimeStr;
-  } catch {
-    return dateTimeStr;
-  }
+  } catch { return dateTimeStr; }
 }
 
 function formatDuration(minutes) {
@@ -73,15 +62,12 @@ function formatDuration(minutes) {
   return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
 }
 
-// All prices are normalized to USD by the backend. We always show a single USD total.
-// The "mixed currency" escape hatch is intentionally removed — if the backend is doing
-// its job, every cost field arrives in USD and we can always sum cleanly.
 function getTotalCostUSD(items, itineraryTotal) {
   if (itineraryTotal && itineraryTotal > 0) return itineraryTotal;
   return items.reduce((sum, i) => sum + (i.cost || 0), 0);
 }
 
-// ── Icon map per type ─────────────────────────────────────────
+// ── Icon map ──────────────────────────────────────────────────
 
 const TYPE_ICONS = {
   flight:   Plane,
@@ -98,8 +84,6 @@ function CardWrapper({ href, children, className = '' }) {
   if (href) return <a href={href} target="_blank" rel="noopener noreferrer" className={base}>{children}</a>;
   return <div className={base}>{children}</div>;
 }
-
-// ── Type label pill — minimal, on-palette ─────────────────────
 
 function TypeLabel({ type }) {
   const labels = { flight: 'Flight', hotel: 'Hotel', transit: 'Transit', activity: 'Activity' };
@@ -142,8 +126,7 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
         </div>
         {durationMinutes > 0 && (
           <p className="text-[10px] text-ramp-text-tertiary flex items-center gap-1">
-            <Clock size={9} />
-            {formatDuration(durationMinutes)}
+            <Clock size={9} />{formatDuration(durationMinutes)}
           </p>
         )}
       </div>
@@ -160,7 +143,6 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
 
 function FlightLegDetails({ segments, layovers }) {
   if (!segments || segments.length === 0) return null;
-
   return (
     <div className="space-y-0">
       {segments.map((seg, idx) => (
@@ -173,9 +155,7 @@ function FlightLegDetails({ segments, layovers }) {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-xs font-semibold text-ramp-text">
-                    {seg.origin} → {seg.destination}
-                  </p>
+                  <p className="text-xs font-semibold text-ramp-text">{seg.origin} → {seg.destination}</p>
                   <p className="text-[10px] text-ramp-text-tertiary mt-0.5">
                     {formatTime(seg.departure_time)} → {formatTime(seg.arrival_time)}
                     {seg.duration_minutes ? ` · ${formatDuration(seg.duration_minutes)}` : ''}
@@ -187,14 +167,10 @@ function FlightLegDetails({ segments, layovers }) {
                   </span>
                 )}
               </div>
-              {seg.aircraft && (
-                <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{seg.aircraft}</p>
-              )}
+              {seg.aircraft && <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{seg.aircraft}</p>}
             </div>
           </div>
-
-          {/* Layover info between segments */}
-          {layovers && layovers[idx] && (
+          {layovers?.[idx] && (
             <div className="ml-5 border-l border-dashed border-ramp-border-strong pl-4 py-2 my-1">
               <p className="text-[11px] text-ramp-text-secondary font-medium">
                 Layover · {layovers[idx].city !== '—' ? layovers[idx].city : ''} ({layovers[idx].airport})
@@ -231,16 +207,12 @@ function FlightCard({ item }) {
   const returnNonstop = d.return_nonstop ?? false;
   const returnDuration = d.return_duration_minutes || 0;
   const oneWayNonstop = d.is_nonstop ?? (segments.length <= 1);
-
   const hasSegments = isRoundTrip ? outboundSegments.length > 0 : segments.length > 0;
 
   return (
     <div className="bg-ramp-surface border border-ramp-border shadow-ramp hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 overflow-hidden">
-      {/* Top yellow accent bar */}
       <div className="h-0.5 bg-ramp-yellow" />
-
       <a href={item.booking_url} target="_blank" rel="noopener noreferrer" className="block px-5 py-4">
-        {/* Header row */}
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex items-center gap-3 min-w-0">
             {airline.logo
@@ -252,15 +224,14 @@ function FlightCard({ item }) {
             <div className="min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="text-sm font-semibold text-ramp-text">{item.title}</p>
-                {isRoundTrip ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
-                    <RotateCcw size={9} /> Round Trip
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
-                    One Way
-                  </span>
-                )}
+                {isRoundTrip
+                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
+                      <RotateCcw size={9} /> Round Trip
+                    </span>
+                  : <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
+                      One Way
+                    </span>
+                }
               </div>
               <p className="text-xs text-ramp-text-tertiary mt-0.5">
                 {airline.name}{d.cabin_class ? ` · ${d.cabin_class.replace('_', ' ')}` : ''}
@@ -274,7 +245,6 @@ function FlightCard({ item }) {
           </div>
         </div>
 
-        {/* Route visual */}
         {isRoundTrip && outboundSegments.length > 0 ? (
           <div className="space-y-4">
             <div>
@@ -293,7 +263,6 @@ function FlightCard({ item }) {
         )}
       </a>
 
-      {/* Expand toggle */}
       {hasSegments && (
         <>
           <button
@@ -305,7 +274,6 @@ function FlightCard({ item }) {
             {expanded ? 'Hide details' : 'View flight details'}
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
           </button>
-
           {expanded && (
             <div className="px-5 py-4 border-t border-ramp-border bg-ramp-surface-alt">
               {isRoundTrip && outboundSegments.length > 0 ? (
@@ -342,28 +310,16 @@ function HotelCard({ item }) {
 
   return (
     <a
-      href={item.booking_url}
-      target="_blank"
-      rel="noopener noreferrer"
+      href={item.booking_url} target="_blank" rel="noopener noreferrer"
       className="group block bg-ramp-surface border border-ramp-border shadow-ramp
                  hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 overflow-hidden"
     >
-      {/* Top yellow accent bar */}
       <div className="h-0.5 bg-ramp-yellow" />
-
       <div className="flex gap-0">
-        {/* Image */}
         <div className="w-32 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
-          <img
-            src={imgSrc}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            onError={() => setImgError(true)}
-            style={{ minHeight: '120px' }}
-          />
+          <img src={imgSrc} alt={item.title} className="w-full h-full object-cover"
+               onError={() => setImgError(true)} style={{ minHeight: '120px' }} />
         </div>
-
-        {/* Content */}
         <div className="flex-1 px-4 py-4 min-w-0 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -377,35 +333,27 @@ function HotelCard({ item }) {
               {d.price_per_night && <p className="text-[10px] text-ramp-text-tertiary">{formatCurrency(d.price_per_night, item)}/night</p>}
             </div>
           </div>
-
-          {/* Star rating + guest rating */}
-          <div className="flex items-center gap-3">
-            {d.stars > 0 && (
-              <div className="flex items-center gap-0.5">
-                {[...Array(Math.min(Math.floor(d.stars), 5))].map((_, i) => (
-                  <Star key={i} size={9} className="fill-ramp-yellow text-ramp-yellow" />
-                ))}
-              </div>
-            )}
-            {d.guest_rating > 0 && (
-              <span className="text-[10px] text-ramp-text-secondary">
-                {d.guest_rating.toFixed(1)} guest rating
-              </span>
-            )}
-          </div>
-
-          {/* Amenities */}
+          {(d.stars > 0 || d.guest_rating > 0) && (
+            <div className="flex items-center gap-3">
+              {d.stars > 0 && (
+                <div className="flex items-center gap-0.5">
+                  {[...Array(Math.min(Math.floor(d.stars), 5))].map((_, i) => (
+                    <Star key={i} size={9} className="fill-ramp-yellow text-ramp-yellow" />
+                  ))}
+                </div>
+              )}
+              {d.guest_rating > 0 && (
+                <span className="text-[10px] text-ramp-text-secondary">{d.guest_rating.toFixed(1)} guest rating</span>
+              )}
+            </div>
+          )}
           {d.amenities?.length > 0 && (
             <div className="flex flex-wrap gap-1">
               {d.amenities.slice(0, 4).map((a, i) => (
-                <span key={i} className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">
-                  {a}
-                </span>
+                <span key={i} className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">{a}</span>
               ))}
             </div>
           )}
-
-          {/* Cancellation */}
           <div className="flex items-center gap-1">
             {d.cancellation_policy?.toLowerCase().includes('free')
               ? <span className="text-[10px] text-ramp-green font-medium">✓ Free cancellation</span>
@@ -422,22 +370,59 @@ function HotelCard({ item }) {
 // ── Transit Card ──────────────────────────────────────────────
 
 function TransitCard({ item }) {
+  const d = item.details || {};
+
+  // Quantity breakdown — shown when more than 1 pass is needed
+  const quantity = d.quantity || 1;
+  const pricePerPass = d.price_per_pass;
+  const passDurationDays = d.pass_duration_days;
+  const daysInCity = d.days_in_city;
+  const passLabel = d.pass_label || item.title;
+
+  // Build the per-pass breakdown string e.g. "$34/pass"
+  const perPassStr = pricePerPass > 0
+    ? `${formatCurrency(pricePerPass, item)}/pass`
+    : null;
+
+  // Days coverage note e.g. "covers 14 of 12 days" or "covers 12 days"
+  const coverageStr = passDurationDays && daysInCity
+    ? `covers ${daysInCity} day${daysInCity !== 1 ? 's' : ''}`
+    : null;
+
   return (
     <CardWrapper href={item.booking_url}>
       <div className="h-0.5 bg-ramp-yellow" />
       <div className="px-5 py-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 bg-ramp-surface-alt border border-ramp-border flex items-center justify-center flex-shrink-0">
             <Train size={14} className="text-ramp-text-secondary" />
           </div>
-          <div>
+          <div className="min-w-0">
             <TypeLabel type="transit" />
-            <p className="text-sm font-semibold text-ramp-text mt-0.5">{item.title}</p>
-            <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>
+            {/* Show the quantity label if > 1 pass, otherwise just the pass name */}
+            <p className="text-sm font-semibold text-ramp-text mt-0.5">{passLabel}</p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+              {item.subtitle && (
+                <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>
+              )}
+              {quantity > 1 && perPassStr && (
+                <p className="text-[10px] text-ramp-text-tertiary">
+                  {perPassStr}
+                </p>
+              )}
+              {coverageStr && (
+                <p className="text-[10px] text-ramp-text-tertiary">{coverageStr}</p>
+              )}
+            </div>
           </div>
         </div>
         <div className="text-right flex-shrink-0 flex items-center gap-2">
-          <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
+          <div className="text-right">
+            <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
+            {quantity > 1 && (
+              <p className="text-[10px] text-ramp-text-tertiary">{quantity} passes</p>
+            )}
+          </div>
           <ExternalLink size={11} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
         </div>
       </div>
@@ -488,13 +473,10 @@ function TimelineItem({ item, index, isLast, runningCost }) {
 
   return (
     <div className="relative flex gap-4 animate-slide-up" style={{ animationDelay: `${index * 60}ms` }}>
-      {/* Track */}
       <div className="flex flex-col items-center flex-shrink-0">
         <TimelineDot type={item.type} />
         {!isLast && <div className="flex-1 w-px bg-ramp-border mt-1 mb-0 min-h-[24px]" />}
       </div>
-
-      {/* Card */}
       <div className="flex-1 pb-6 min-w-0">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-ramp-text-secondary">{formatDate(item.date)}</span>
@@ -514,9 +496,6 @@ export default function ItineraryTimeline({ itinerary }) {
   if (!itinerary) return null;
 
   const items = itinerary.items || [];
-
-  // All costs are in USD — the backend normalises everything before returning.
-  // Sum them directly; no mixed-currency check needed.
   const totalCost = getTotalCostUSD(items, itinerary.total_cost);
 
   let running = 0;
@@ -526,13 +505,12 @@ export default function ItineraryTimeline({ itinerary }) {
   });
 
   const flightCount = items.filter(i => i.type === 'flight').length;
-  const hotelCount = items.filter(i => i.type === 'hotel').length;
+  const hotelCount  = items.filter(i => i.type === 'hotel').length;
 
   return (
     <div className="animate-slide-up">
       {/* ── Trip Header ── */}
       <div className="bg-ramp-surface border border-ramp-border shadow-ramp mb-6 overflow-hidden">
-        {/* Yellow accent bar */}
         <div className="h-1 bg-ramp-yellow" />
         <div className="px-6 py-5 flex items-start justify-between gap-4">
           <div>
@@ -555,7 +533,6 @@ export default function ItineraryTimeline({ itinerary }) {
                 </span>
               )}
             </div>
-            {/* Summary pills */}
             <div className="flex items-center gap-2 mt-3">
               {flightCount > 0 && (
                 <span className="text-[10px] px-2 py-0.5 border border-ramp-border text-ramp-text-secondary bg-ramp-surface-alt">

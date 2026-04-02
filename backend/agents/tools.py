@@ -69,17 +69,28 @@ TOOLS = [
         "function": {
             "name": "search_transit",
             "description": (
-                "Get public transit pass options for a city. "
+                "Get public transit pass options for a city, automatically calculating the correct quantity "
+                "and total cost for the traveler's stay. ALWAYS pass days_in_city — the backend picks the "
+                "most cost-effective pass duration and multiplies accordingly (e.g. 2× 7-day pass for a 12-day stay). "
+                "The returned total_price already reflects the full cost for the entire stay. "
+                "Use cost = total_price (NOT price_per_pass) when building the itinerary item.\n\n"
                 "ONLY call this for cities where public transit is genuinely useful for tourists: "
                 "cities in Europe, East Asia, Southeast Asia, and transit-forward North American cities "
-                "(New York, Chicago, Boston, Toronto, Montreal, Vancouver, Washington DC, San Francisco, Seattle, etc.). "
+                "(New York, Chicago, Boston, Toronto, Montreal, Vancouver, Washington DC, San Francisco, Seattle). "
                 "DO NOT call this for car-dependent cities like Los Angeles, Miami, Houston, Dallas, Phoenix, "
                 "Las Vegas, Orlando, Atlanta, Denver, or any city where visitors clearly need a car. "
-                "If search_transit returns an empty list or price of 0, omit transit from the itinerary entirely."
-            ),            "parameters": {
+                "If search_transit returns an empty list, omit transit from the itinerary entirely."
+            ),
+            "parameters": {
                 "type": "object",
-                "properties": {"city": {"type": "string"}},
-                "required": ["city"]
+                "properties": {
+                    "city": {"type": "string"},
+                    "days_in_city": {
+                        "type": "integer",
+                        "description": "Number of days the traveler will be in this city. Used to calculate how many passes are needed and the correct total cost. Always provide this."
+                    }
+                },
+                "required": ["city", "days_in_city"]
             }
         }
     },
@@ -109,14 +120,14 @@ TOOLS = [
                                         "end_date": {"type": "string"},
                                         "title": {"type": "string"},
                                         "subtitle": {"type": "string"},
-                                        "cost": {"type": "number", "description": "Total cost of this item. For hotels, this MUST be the total_price for ALL nights, NOT the price per night."},
+                                        "cost": {"type": "number", "description": "Total cost of this item. For hotels: total_price for ALL nights. For transit: total_price from search_transit (already accounts for all passes needed for the full stay). NEVER use price_per_pass or price_per_night as the cost."},
                                         "currency_code": {"type": "string"},
                                         "currency_symbol": {"type": "string"},
                                         "image_url": {"type": "string", "description": "The image_url from the search results. NEVER drop this field when updating an itinerary. If missing, use a fallback like https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600"},
                                         "booking_url": {"type": "string", "description": "The booking_url from the search results"},
                                         "details": {
                                             "type": "object",
-                                            "description": "DO NOT BE LAZY. You MUST copy all of the nested fields from the search tool results into this object exactly as they appear.\n\n- For FLIGHTS: `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. For ROUND-TRIP flights, also include `is_round_trip`, `trip_type`, `outbound_segments`, `outbound_layovers`, `outbound_nonstop`, `outbound_duration_minutes`, `return_segments`, `return_layovers`, `return_nonstop`, `return_duration_minutes`, `return_date`. DO NOT TRUNCATE ARRAYS.\n\nDo not be lazy. Fill out the entire object perfectly so the UI renders.",
+                                            "description": "DO NOT BE LAZY. You MUST copy all of the nested fields from the search tool results into this object exactly as they appear.\n\n- For TRANSIT: `details` MUST contain `price_per_pass` (number), `quantity` (integer — number of passes needed), `pass_duration_days` (integer — days each pass covers), `days_in_city` (integer), and `pass_label` (string, e.g. '2× 7-Day Pass'). Use `total_price` from the search result as the top-level `cost`.\n- For FLIGHTS: `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. For ROUND-TRIP flights, also include `is_round_trip`, `trip_type`, `outbound_segments`, `outbound_layovers`, `outbound_nonstop`, `outbound_duration_minutes`, `return_segments`, `return_layovers`, `return_nonstop`, `return_duration_minutes`, `return_date`. DO NOT TRUNCATE ARRAYS.\n\nDo not be lazy. Fill out the entire object perfectly so the UI renders.",
                                             "properties": {
                                                 "price_per_night": {"type": "number"},
                                                 "nights": {"type": "number"},
@@ -124,6 +135,11 @@ TOOLS = [
                                                 "stars": {"type": "number"},
                                                 "amenities": {"type": "array", "items": {"type": "string"}},
                                                 "neighborhood": {"type": "string"},
+                                                "price_per_pass": {"type": "number"},
+                                                "quantity": {"type": "integer"},
+                                                "pass_duration_days": {"type": "integer"},
+                                                "days_in_city": {"type": "integer"},
+                                                "pass_label": {"type": "string"},
                                                 "airline": {
                                                     "type": "object",
                                                     "properties": {
@@ -193,6 +209,7 @@ You must NEVER output the trip itinerary as a Markdown list or plain text in you
 When building the itinerary, you MUST copy the exact fields returned by the search tools into the `details` object of each item so the UI does not break.
 - For HOTELS: The `title` field of the itinerary item MUST be the actual hotel name from the search results (e.g. "Shinjuku Granbell Hotel"), NOT a generic label like "Hotel in Tokyo". The `subtitle` should include the city/neighborhood. The top-level `cost` field MUST be the total cost for all nights (use `total_price` from the search results), NOT just the price for one night. `details` MUST contain `price_per_night` (number), `nights` (number), `guest_rating` (number), `stars` (number), and `amenities` (array). You must map the `image_url` and `booking_url` properties correctly to the top level of the item.
 - For FLIGHTS: The `title` should be the route (e.g. "Flight from Toronto to Tokyo"). `details` MUST contain the ENTIRE `segments` array (origin, destination, times), `layovers` array, `total_duration_minutes`, and `airline`. For ROUND-TRIP flights, you MUST also include `is_round_trip: true`, `trip_type: "round_trip"`, `outbound_segments`, `outbound_layovers`, `outbound_nonstop`, `outbound_duration_minutes`, `return_segments`, `return_layovers`, `return_nonstop`, `return_duration_minutes`, and `return_date`. DO NOT TRUNCATE ARRAYS.
+- For TRANSIT: The top-level `cost` MUST be `total_price` from the search_transit result — this already accounts for the correct number of passes for the full stay. NEVER use `price_per_pass` as the cost. `details` MUST contain `price_per_pass`, `quantity`, `pass_duration_days`, `days_in_city`, and `pass_label` (e.g. "2× 7-Day Pass"). The `subtitle` should describe the quantity and coverage, e.g. "2× 7-Day Unlimited MetroCard · 14 days covered".
 - For ANY priced item, preserve source currency metadata when available. Copy `currency_code` and `currency_symbol` to both the top-level itinerary item and the `details` object when the search result includes them.
 
 CRITICAL NAMING RULES:
@@ -207,10 +224,15 @@ Do not be lazy. Fill out the entire object perfectly so the UI renders.
 ## Your Behavior
 
 1. **ONLY respond to travel-related requests.** If a user asks something unrelated to travel planning (e.g., coding help, math, general knowledge), politely decline and redirect them back to trip planning.
-# REPLACE WITH:
-2. **RENTAL CARS ARE NOT OFFERED.** If the user asks for car rentals, rental cars, or hire cars, clearly say ExpediRamp does not offer rentals right now, then offer public transportation instead — BUT only if the destination city actually has good public transit (see below).
-3. **TRANSIT: ONLY SUGGEST WHEN IT MAKES SENSE.** Never call `search_transit` for car-dependent cities (e.g. Los Angeles, Miami, Houston, Dallas, Phoenix, Las Vegas, Orlando, Atlanta, Denver). Only call it for cities with genuinely good tourist transit: cities in Europe, East Asia (Tokyo, Osaka, Seoul, Singapore, Hong Kong), and transit-forward North American cities (New York, Chicago, Boston, Toronto, San Francisco, Seattle, DC, Montreal, Vancouver). If `search_transit` returns an empty list or a result with price = 0 and no URL, omit the transit item from the itinerary entirely — do NOT add a $0 placeholder.
-4. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
+2. **RENTAL CARS ARE NOT OFFERED.** If the user asks for car rentals, rental cars, or hire cars, clearly say ExpediRamp does not offer rentals right now, then offer public transportation instead — BUT only if the destination city actually has good public transit (see rule 3).
+3. **TRANSIT: ONLY SUGGEST WHEN IT MAKES SENSE.** Never call `search_transit` for car-dependent cities (e.g. Los Angeles, Miami, Houston, Dallas, Phoenix, Las Vegas, Orlando, Atlanta, Denver). Only call it for cities with genuinely good tourist transit: cities in Europe, East Asia (Tokyo, Osaka, Seoul, Singapore, Hong Kong), and transit-forward North American cities (New York, Chicago, Boston, Toronto, San Francisco, Seattle, DC, Montreal, Vancouver). If `search_transit` returns an empty list, omit the transit item from the itinerary entirely.
+4. **TRANSIT QUANTITY: ALWAYS PASS days_in_city.** When calling `search_transit`, you MUST pass the exact number of days the traveler will be in that city. The backend calculates the optimal pass choice and total cost automatically. Use `total_price` (not `price_per_pass`) as the transit item's `cost` in `build_itinerary`.
+5. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. If the user says "I want to go from Toronto to Tokyo", immediately search for flights, hotels, and transportation using reasonable defaults (1 traveler, economy class, mid-range hotels). The user can always refine afterwards. Never ask "how many travelers?" or "what class?" — just assume sensible defaults and go.
+6. **Search proactively.** Use the tools to search for live flights, hotels, and public transportation. Call multiple search tools in parallel when possible.
+7. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
+8. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
+9. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
+10. **Always call build_itinerary — never write it out.** If a [CURRENT_ITINERARY] block is present in the conversation, you MUST call build_itinerary when presenting an updated trip. Copy every unchanged item verbatim from the [FULL_ITINERARY_JSON] block — including image_url, booking_url, and the full airline object. Only call search tools for the specific component the user asked to change. Do not re-search things that are already confirmed.
 
 ## CRITICAL: ROUND-TRIP vs ONE-WAY FLIGHT SELECTION
 
@@ -228,22 +250,11 @@ You have TWO flight search tools. Choosing the right one is essential:
 
 **ALWAYS include return flights.** Unless the user explicitly says "one-way", assume EVERY trip is round-trip.
 
-**NEVER COMBINE CONFLICTING FLIGHTS:** Never book a round-trip flight AND a separate one-way return flight in the same itinerary. If you use `search_flights_roundtrip` (A→B→A), the user already has a way home. For open-jaw trips, only use `search_flights` (one-way) calls.
-
-5. **Search proactively.** Use the tools to search for live flights, hotels, and public transportation. Call multiple search tools in parallel when possible.
-6. **STRICT TIMELINE UI REQUIREMENT:** When you are ready to present the itinerary, you MUST use the `build_itinerary` tool. **DO NOT** output the itinerary as a markdown list in your text reply. The frontend relies exclusively on the JSON data from `build_itinerary` to render the interactive timeline with photos, prices, and links. If you write out a markdown list, the visual timeline will break. Let the UI handle the formatting.
-7. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
-8. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
-9. **Always call build_itinerary — never write it out.** If a [CURRENT_ITINERARY] 
-   block is present in the conversation, you MUST call build_itinerary when 
-   presenting an updated trip. Copy every unchanged item verbatim from the 
-   [FULL_ITINERARY_JSON] block — including image_url, booking_url, and the full 
-   airline object. Only call search tools for the specific component the user 
-   asked to change. Do not re-search things that are already confirmed.
+**NEVER COMBINE CONFLICTING FLIGHTS:** Never book a round-trip flight AND a separate one-way return flight in the same itinerary.
 
 ## Output Format for build_itinerary
 
-The itinerary items should be ordered chronologically. Pass ALL information exactly as returned from the API searches. 
+The itinerary items should be ordered chronologically. Pass ALL information exactly as returned from the API searches.
 
 For ONE-WAY flights:
 ```json
@@ -294,6 +305,17 @@ For hotels:
   "price_per_night": 180,
   "nights": 5,
   "cancellation_policy": "Free cancellation until 24h before"
+}
+```
+
+For transit:
+```json
+{
+  "price_per_pass": 34,
+  "quantity": 2,
+  "pass_duration_days": 7,
+  "days_in_city": 12,
+  "pass_label": "2× 7-Day Unlimited MetroCard"
 }
 ```
 
