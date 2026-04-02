@@ -1,47 +1,36 @@
 import React, { useState } from 'react';
 import {
   Plane, Hotel, Train, Navigation, MapPin, Calendar, Users,
-  ExternalLink, ChevronDown, ChevronUp, Clock, Star, RotateCcw,
+  ChevronDown, ChevronUp, ExternalLink, Clock, Star, RotateCcw,
 } from 'lucide-react';
 
 // ── Formatters ────────────────────────────────────────────────
 
 function formatCurrency(amount, item = {}) {
-  if (!amount && amount !== 0) return '—';
-  const code = item.currency_code || 'USD';
+  if (amount === null || amount === undefined) return '—';
   const symbol = item.currency_symbol || '$';
-  const formatted = Math.round(amount).toLocaleString('en-US');
-  return code === 'USD' ? `$${formatted}` : `${symbol}${formatted}`;
+  const code   = item.currency_code   || 'USD';
+  if (symbol !== '$') return `${symbol}${Math.round(amount).toLocaleString()}`;
+  if (code   !== 'USD') return `${symbol}${Math.round(amount).toLocaleString()} ${code}`;
+  return `$${Math.round(amount).toLocaleString()}`;
 }
 
 function formatDate(dateStr) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '';
   try {
     const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   } catch { return dateStr; }
 }
 
-function formatShortDate(dateStr) {
-  if (!dateStr) return '';
-  try {
-    const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
-    if (match) {
-      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-      return `${months[parseInt(match[2], 10) - 1]} ${parseInt(match[3], 10)}`;
-    }
-    return dateStr;
-  } catch { return ''; }
-}
-
 function formatTime(dateTimeStr) {
-  if (!dateTimeStr) return '—';
+  if (!dateTimeStr) return '';
   try {
-    const match = dateTimeStr.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
-    if (match) {
-      let hours = parseInt(match[2], 10);
-      const minutes = match[3];
-      const ampm = hours >= 12 ? 'PM' : 'AM';
+    if (dateTimeStr.includes('T') || dateTimeStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)) {
+      const d = new Date(dateTimeStr.replace(' ', 'T'));
+      let hours   = d.getHours();
+      let minutes = String(d.getMinutes()).padStart(2, '0');
+      const ampm  = hours >= 12 ? 'PM' : 'AM';
       hours = hours % 12 || 12;
       return `${hours}:${minutes} ${ampm}`;
     }
@@ -148,6 +137,7 @@ function FlightLegDetails({ segments, layovers }) {
       {segments.map((seg, idx) => (
         <React.Fragment key={idx}>
           <div className="flex items-start gap-3 py-2">
+            {/* dot + solid connector line — w-1.5 dot centred in this column */}
             <div className="flex flex-col items-center pt-1 flex-shrink-0">
               <div className="w-1.5 h-1.5 rounded-full bg-ramp-text-tertiary" />
               {idx < segments.length - 1 && <div className="w-px h-8 bg-ramp-border mt-1" />}
@@ -170,8 +160,13 @@ function FlightLegDetails({ segments, layovers }) {
               {seg.aircraft && <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{seg.aircraft}</p>}
             </div>
           </div>
+
+          {/* Layover block — left border aligned with the solid connector line above.
+              The dot column is w-1.5 (6px) centred, so the line sits at x=3px.
+              ml-[3px] shifts our border to that same x position.
+              pl-[19px] compensates so text stays roughly where it was at ml-5 pl-4. */}
           {layovers?.[idx] && (
-            <div className="ml-5 border-l border-dashed border-ramp-border-strong pl-4 py-2 my-1">
+            <div className="ml-[3px] border-l border-dashed border-ramp-border-strong pl-[19px] py-2 my-1">
               <p className="text-[11px] text-ramp-text-secondary font-medium">
                 Layover · {layovers[idx].city !== '—' ? layovers[idx].city : ''} ({layovers[idx].airport})
               </p>
@@ -384,7 +379,7 @@ function TransitCard({ item }) {
     ? `${formatCurrency(pricePerPass, item)}/pass`
     : null;
 
-  // Days coverage note e.g. "covers 14 of 12 days" or "covers 12 days"
+  // Days coverage note e.g. "covers 12 days"
   const coverageStr = passDurationDays && daysInCity
     ? `covers ${daysInCity} day${daysInCity !== 1 ? 's' : ''}`
     : null;
@@ -399,7 +394,6 @@ function TransitCard({ item }) {
           </div>
           <div className="min-w-0">
             <TypeLabel type="transit" />
-            {/* Show the quantity label if > 1 pass, otherwise just the pass name */}
             <p className="text-sm font-semibold text-ramp-text mt-0.5">{passLabel}</p>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
               {item.subtitle && (
@@ -495,7 +489,11 @@ function TimelineItem({ item, index, isLast, runningCost }) {
 export default function ItineraryTimeline({ itinerary }) {
   if (!itinerary) return null;
 
-  const items = itinerary.items || [];
+  // Filter out $0 transit items with no booking link — they're useless to display
+  const items = (itinerary.items || []).filter(
+    item => !(item.type === 'transit' && !item.cost && !item.booking_url)
+  );
+
   const totalCost = getTotalCostUSD(items, itinerary.total_cost);
 
   let running = 0;

@@ -780,7 +780,8 @@ def _search_fli(
             # Extract flight number
             flight_num = ""
             if hasattr(leg, 'flight_number') and leg.flight_number:
-                flight_num = leg.flight_number
+                leg_airline_code = leg.airline.name if leg.airline else airline_code
+                flight_num = f"{leg_airline_code} {leg.flight_number}" if leg_airline_code else str(leg.flight_number)
             elif airline_code:
                 flight_num = f"{airline_code} {i + 1}"
 
