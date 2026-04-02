@@ -1,164 +1,209 @@
 # ExpediRamp
 
-ExpediRamp is a React + Flask travel planner that streams AI trip planning results, saves signed-in users' trip history, and now uses Firebase for authentication and persistence.
+> **Modern Travel Runs on ExpediRamp**
 
-## What changed
+ExpediRamp is an AI-powered travel planning web app. Describe your trip in plain English and the agent searches for real flights, hotels, and ground transportation, then builds a visual itinerary you can iterate on conversationally.
 
-- Supabase auth was replaced with Firebase Authentication.
-- Supabase conversation storage was replaced with Cloud Firestore.
-- The signup flow now uses Firebase's `createUserWithEmailAndPassword`, so an email that already exists is rejected cleanly instead of creating a broken duplicate-signup state.
-- The backend now verifies Firebase ID tokens with the Firebase Admin SDK before returning user-specific data.
+---
 
 ## Architecture
 
-```text
-frontend/  React + Vite + Tailwind + Firebase Web SDK
-backend/   Flask + OpenAI + Firebase Admin SDK
-storage/   Cloud Firestore
-auth/      Firebase Authentication (Email/Password)
 ```
+frontend/   React 19 + Vite + Tailwind CSS + Firebase Web SDK
+backend/    Flask + OpenAI (GPT-4o) + Firebase Admin SDK
+auth/       Firebase Authentication (Email/Password)
+storage/    Cloud Firestore
+flights/    `flights` (fli) package — reverse-engineered Google Flights API (no key required)
+hotels/     SerpAPI Google Hotels (falls back to placeholder data if key is absent)
+```
+
+---
 
 ## Prerequisites
 
-- Node.js 18+
-- Python 3.11+
-- A Firebase project
-- An OpenAI API key
-- Optional: RapidAPI Booking.com key and SerpAPI key
+| Requirement | Version / Notes |
+|---|---|
+| Node.js | 18+ |
+| Python | 3.11+ |
+| Firebase project | auth + Firestore |
+| OpenAI API key | GPT-4o |
+| SerpAPI key | Optional — enables real hotel results |
 
-## Exact Firebase setup
+No Duffel account or RapidAPI key is needed. Flights are fetched directly from Google Flights via the `flights` (`fli`) Python package — no API key required.
 
-These steps follow the current Firebase docs for web setup, email/password auth, Admin SDK setup, Firestore creation, and ID-token verification:
+---
 
-- Web app setup: [Add Firebase to your JavaScript project](https://firebase.google.com/docs/web/setup)
-- Email/password auth: [Authenticate with Firebase using Password-Based Accounts](https://firebase.google.com/docs/auth/web/password-auth)
-- Admin SDK credentials: [Add the Firebase Admin SDK to your server](https://firebase.google.com/docs/admin/setup)
-- Backend token verification: [Verify ID Tokens](https://firebase.google.com/docs/auth/admin/verify-id-tokens)
-- Firestore database creation: [Manage databases](https://firebase.google.com/docs/firestore/manage-databases)
+## 1. Firebase Setup
 
-### 1. Create the Firebase project
+### 1a. Create the project
 
-1. Open the [Firebase console](https://console.firebase.google.com/).
-2. Click `Create a project`.
-3. Give it a name.
-4. Analytics is optional for this app. You can leave it off if you just want auth + Firestore.
-5. Wait for the project to finish provisioning.
+1. Go to [console.firebase.google.com](https://console.firebase.google.com/).
+2. Click **Create a project**, give it a name, and finish the wizard. Analytics is optional.
 
-Firebase's web setup guide says you first create a Firebase project, then register your web app, and Firebase gives you the config object used by the frontend.
+### 1b. Register the web app
 
-### 2. Register the web app
+1. From the project overview, click the **`</>`** (web) icon.
+2. Use `expediramp-web` as the app nickname.
+3. Click **Register app**.
+4. Copy the config object — you'll need these values for `frontend/.env.local`.
 
-1. In the Firebase project overview, click the web icon `</>`.
-2. App nickname: use `expediramp-web`.
-3. Click `Register app`.
-4. Copy the Firebase config values shown on screen.
+### 1c. Enable Email/Password authentication
 
-You will use those values in `frontend/.env.local`.
+1. In the Firebase console, open **Authentication → Sign-in method**.
+2. Enable **Email/Password**.
+3. Click **Save**.
 
-### 3. Enable Email/Password auth
+### 1d. Create Firestore
 
-1. In Firebase console, open `Authentication`.
-2. Open the `Sign-in method` tab.
-3. Enable `Email/Password`.
-4. Click `Save`.
+1. In the Firebase console, open **Firestore Database**.
+2. Click **Create database**, use the **default** database.
+3. Choose a region close to your users and finish the wizard.
 
-The Firebase auth docs explicitly call out this exact flow before using `createUserWithEmailAndPassword` and `signInWithEmailAndPassword`.
+No manual schema is required. The backend creates all collections on demand:
 
-### 4. Create Firestore
+- `conversations`
+- `conversations/{conversationId}/messages`
+- `itineraries`
 
-1. In Firebase console, open `Firestore Database`.
-2. Click `Create database`.
-3. Use the default database.
-4. Pick a region close to your users.
-5. Finish the wizard.
+### 1e. Generate the Admin SDK service account key
 
-This app uses Firestore from the backend only, so you do not need to build client-side Firestore queries for the current feature set.
+1. In the Firebase console, go to **Project settings → Service accounts**.
+2. Click **Generate new private key**.
+3. Save the downloaded JSON file **outside** version control.
 
-### 5. Generate the Admin SDK service account key
+You will reference this file (or its contents inline) in the backend `.env`.
 
-1. In Firebase console, open `Project settings`.
-2. Open the `Service accounts` tab.
-3. Click `Generate new private key`.
-4. Save the downloaded JSON somewhere outside version control.
+---
 
-Firebase's Admin SDK docs recommend using service account credentials for trusted server environments.
+## 2. Get API Keys
 
-## Environment files
+### OpenAI
 
-This repo now uses two env files:
+Sign up or log in at [platform.openai.com](https://platform.openai.com/) and create an API key. The agent uses `gpt-4o` by default.
 
-- Root `.env` for Flask/backend secrets
-- `frontend/.env.local` for Vite/Firebase web config
+### SerpAPI (optional but recommended)
 
-### Backend `.env`
+Used for real hotel search results and photos via the Google Hotels engine. Without it, the app falls back to placeholder hotel data.
+
+Sign up at [serpapi.com](https://serpapi.com/) and copy your API key. The free tier is sufficient for development.
+
+### Flights — no key needed
+
+Flights are fetched via the [`flights` (`fli`) Python package](https://pypi.org/project/flights/), which uses the reverse-engineered Google Flights internal API. No account or API key is required.
+
+**Currency note:** Google Flights returns prices in the currency matching the server's IP geolocation. The backend auto-detects this and converts all prices to USD using live exchange rates. If prices appear in the wrong currency, set `FLIGHT_CURRENCY=CAD` (or your local currency code) in `.env` as an explicit override.
+
+---
+
+## 3. Configure Environment Files
+
+There are two env files — one for the backend (repo root) and one for the frontend.
+
+### Backend — `.env` (repo root)
 
 Copy the template:
 
 ```bash
+# macOS / Linux
+cp .env.example .env
+
+# Windows PowerShell
 Copy-Item .env.example .env
 ```
 
-Set these values:
+Fill in the values:
 
 ```env
-OPENAI_API_KEY=sk-...
-RAPIDAPI_KEY=your-rapidapi-key
+# ── OpenAI ────────────────────────────────────────────────────
+OPENAI_API_KEY=sk-your-openai-key
+
+# ── SerpAPI (hotel search — optional but recommended) ─────────
 SERPAPI_KEY=your-serpapi-key
-FLASK_SECRET_KEY=change-me
-FLASK_ENV=development
-FLASK_PORT=5001
-FRONTEND_URL=http://localhost:5173
 
-# Preferred option: point to the downloaded service-account JSON
-FIREBASE_SERVICE_ACCOUNT_KEY_PATH=C:\\path\\to\\firebase-service-account.json
+# ── Flight currency override (optional) ───────────────────────
+# The backend auto-detects via IP geolocation and converts to USD.
+# Set this only if auto-detection returns the wrong currency.
+# Example: FLIGHT_CURRENCY=CAD if your server runs in Canada.
+FLIGHT_CURRENCY=
 
-# Optional alternative instead of FIREBASE_SERVICE_ACCOUNT_KEY_PATH
+# ── Firebase Admin SDK ────────────────────────────────────────
+# Option A (recommended): path to the downloaded service-account JSON
+FIREBASE_SERVICE_ACCOUNT_KEY_PATH=/absolute/path/to/firebase-service-account.json
+
+# Option B: inline the three fields from the JSON instead
 FIREBASE_PROJECT_ID=your-project-id
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxxxx@your-project-id.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+
+# ── Flask ─────────────────────────────────────────────────────
+FLASK_SECRET_KEY=change-me-to-a-long-random-string
+FLASK_ENV=development
+FLASK_PORT=5001
+FRONTEND_URL=http://localhost:5173
 ```
 
-Use either:
+Use **either** `FIREBASE_SERVICE_ACCOUNT_KEY_PATH` **or** the inline trio — not both.
 
-- `FIREBASE_SERVICE_ACCOUNT_KEY_PATH`, or
-- the inline trio `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, and `FIREBASE_PRIVATE_KEY`
-
-### Frontend `frontend/.env.local`
+### Frontend — `frontend/.env.local`
 
 Copy the template:
 
 ```bash
-cd frontend
-Copy-Item .env.example .env.local
+# macOS / Linux
+cp frontend/.env.example frontend/.env.local
+
+# Windows PowerShell
+Copy-Item frontend/.env.example frontend/.env.local
 ```
 
-Then fill in:
+Fill in the values from your Firebase web app registration (step 1b):
 
 ```env
 VITE_API_URL=http://localhost:5001/api
+
 VITE_FIREBASE_API_KEY=your-web-api-key
 VITE_FIREBASE_AUTH_DOMAIN=your-project-id.firebaseapp.com
 VITE_FIREBASE_PROJECT_ID=your-project-id
 VITE_FIREBASE_APP_ID=your-web-app-id
 VITE_FIREBASE_MESSAGING_SENDER_ID=your-sender-id
+
+# Optional: require a password before accessing the app (useful for private demos).
+# Leave blank or omit to disable the gate entirely.
+VITE_DEMO_PASSWORD=
 ```
 
-All of these values come from the Firebase web app registration screen or Project settings.
+---
 
-## Install and run
+## 4. Install & Run
 
 ### Backend
 
 ```bash
 cd backend
+
+# Create and activate a virtual environment
 python -m venv venv
+
+# macOS / Linux
+source venv/bin/activate
+
 # Windows PowerShell
 .\venv\Scripts\Activate.ps1
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Start the server
 python app.py
 ```
 
-Backend runs on `http://localhost:5001` by default.
+Backend runs at **http://localhost:5001** by default.
+
+To run with gunicorn (closer to production):
+
+```bash
+gunicorn -k eventlet -w 1 app:app
+```
 
 ### Frontend
 
@@ -168,76 +213,102 @@ npm install
 npm run dev
 ```
 
-Frontend runs on `http://localhost:5173`.
+Frontend runs at **http://localhost:5173**.
 
-## Firestore data model
+---
 
-No manual SQL schema is required anymore. The backend creates documents on demand in these collections:
+## 5. How It Works
 
-- `conversations`
-- `conversations/{conversationId}/messages`
-- `itineraries`
+1. The user describes a trip in the chat input (e.g. *"I want to fly from Toronto to Tokyo for two weeks in September, budget around $4,000"*).
+2. The Flask backend passes the conversation to a GPT-4o agent equipped with search tools.
+3. The agent calls those tools — hitting Google Flights via `fli` for flights, SerpAPI for hotels, and built-in transit data for ground transportation — and streams results back via Server-Sent Events.
+4. When the agent is done, the frontend renders a vertical timeline itinerary with photos, clickable booking links, layover details, and a running cost total.
+5. The user can iterate in plain language (*"Skip the layover in Dubai"*, *"I want a nicer hotel"*, *"Add Osaka"*) and the agent updates only the relevant parts of the itinerary.
+6. Signed-in users have their conversation and itinerary saved to Firestore automatically. Anonymous usage is supported but not persisted.
 
-Each signed-in user's conversation list is filtered server-side after Firebase ID token verification.
+---
 
-## How auth works now
+## 6. How Auth Works
 
-1. The frontend signs users in with Firebase Auth.
-2. Firebase returns an ID token for the signed-in user.
-3. The frontend sends that token to Flask in the `Authorization: Bearer <token>` header.
-4. Flask verifies the token with `firebase_admin.auth.verify_id_token(...)`.
-5. If verification succeeds, the backend loads or writes that user's Firestore data.
+1. The frontend signs users in with Firebase Authentication (`createUserWithEmailAndPassword` / `signInWithEmailAndPassword`).
+2. Firebase returns a short-lived ID token.
+3. The frontend attaches it to every API request: `Authorization: Bearer <token>`.
+4. Flask verifies the token using the Firebase Admin SDK (`firebase_admin.auth.verify_id_token`).
+5. If verification succeeds, the backend reads or writes that user's Firestore documents.
 
-That follows Firebase's recommended backend flow for custom servers: send the client's ID token over HTTPS, then verify it server-side with the Admin SDK.
+---
 
-## Duplicate-signup bug fix
+## 7. Project Structure
 
-The old signup flow proxied to Supabase and could leave the UI in a bad state when an address already existed. The new signup flow uses Firebase Authentication directly in the frontend and maps `auth/email-already-in-use` to a clear error message:
-
-- `An account with this email already exists. Sign in instead.`
-
-That means an existing email can no longer silently "sign up" again.
-
-## Migration notes
-
-- Existing Supabase users are not automatically migrated by this code change.
-- Existing Supabase conversation history is not imported into Firestore by this change.
-- If you want, the next step can be a one-time migration script from Supabase Auth + tables into Firebase Auth + Firestore.
-
-## Troubleshooting
-
-### `Invalid token`
-
-Usually means one of these:
-
-- frontend is pointed at one Firebase project and backend service-account creds point at another
-- backend `.env` is missing Firebase Admin credentials
-- frontend `.env.local` still contains old values
-
-### Firebase signup/login works but saved trips do not
-
-Usually means:
-
-- Firestore was not created yet
-- backend is not using valid Admin SDK credentials
-- backend needs a restart after editing `.env`
-
-### `Module not found: firebase`
-
-Run:
-
-```bash
-cd frontend
-npm install
+```
+expediramp/
+├── .env.example                   # Backend env template
+├── backend/
+│   ├── app.py                     # Flask entry point
+│   ├── config.py                  # Reads .env into Config class
+│   ├── requirements.txt
+│   ├── agents/
+│   │   ├── travel_agent.py        # OpenAI agent loop (streaming + non-streaming)
+│   │   └── tools.py               # Tool definitions and system prompt
+│   ├── routes/
+│   │   ├── chat.py                # POST /api/chat, POST /api/chat/stream, conversation routes
+│   │   └── auth.py                # GET /api/auth/me, POST /api/auth/logout
+│   └── services/
+│       ├── flight_service.py      # Google Flights via fli package (no API key needed)
+│       ├── hotel_service.py       # SerpAPI Google Hotels (falls back to placeholders)
+│       ├── currency_conversion.py # Auto-detects local currency, converts prices to USD
+│       └── firebase_client.py     # Firestore helpers + token verification
+└── frontend/
+    ├── .env.example               # Frontend env template
+    ├── index.html
+    ├── package.json
+    ├── vite.config.js
+    ├── tailwind.config.js
+    └── src/
+        ├── main.jsx
+        ├── App.jsx                # Main chat + itinerary state
+        ├── api/                   # sendMessageStream and other API helpers
+        ├── components/
+        │   ├── Auth/              # AuthModal (sign in / sign up)
+        │   ├── DemoGate.jsx       # Optional password gate
+        │   ├── ChatInput.jsx
+        │   ├── ItineraryTimeline.jsx
+        │   └── ...
+        └── firebase.js            # Firebase SDK initialisation
 ```
 
-### Python import errors for Firebase Admin
+---
 
-Run:
+## 8. Troubleshooting
+
+### Flight prices show in the wrong currency
+
+The `fli` package returns prices in the currency Google Flights assigns based on the server's IP. Set `FLIGHT_CURRENCY=CAD` (or your local currency code) in `.env` to force the correct source currency before conversion to USD. Restart the Flask server after changing it.
+
+### No hotel results / placeholder hotels showing
+
+`SERPAPI_KEY` is not set or is invalid. Without it the app falls back to placeholder hotel data. Set a valid SerpAPI key in `.env` and restart Flask.
+
+### `Invalid token` from the backend
+
+The `VITE_FIREBASE_PROJECT_ID` in the frontend and the Firebase credentials in the backend must point at the **same** Firebase project. Restart the Flask server after any `.env` change.
+
+### Trips are not being saved
+
+- Confirm that Firestore has been created in the Firebase console (step 1d).
+- Verify the backend is using valid Admin SDK credentials (Option A or B, not a partial mix of both).
+- Restart Flask after editing `.env`.
+
+### `Module not found: firebase` (frontend)
+
+```bash
+cd frontend && npm install
+```
+
+### Python import errors for `firebase_admin` or `flights`
 
 ```bash
 cd backend
-.\venv\Scripts\Activate.ps1
+# Activate your virtual environment first, then:
 pip install -r requirements.txt
 ```
-
