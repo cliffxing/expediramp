@@ -3,6 +3,7 @@ Car rental & transit service.
 
 Car rentals: RapidAPI Booking.com real-time search → fallback to booking-redirect links.
 Transit: SerpAPI Google Search for real transit pass info → fallback to curated data.
+All transit prices are converted to USD before being returned.
 """
 
 import logging
@@ -43,12 +44,12 @@ TRANSIT_REFERENCE_LINKS = {
 
 CURRENCY_SYMBOLS = {
     "USD": "$",
-    "EUR": "EUR",
-    "GBP": "GBP",
-    "JPY": "JPY",
-    "CNY": "RMB",
-    "SGD": "SGD",
-    "KRW": "KRW",
+    "EUR": "€",
+    "GBP": "£",
+    "JPY": "¥",
+    "CNY": "¥",
+    "SGD": "S$",
+    "KRW": "₩",
 }
 
 
@@ -77,9 +78,7 @@ def _detect_currency(text: str) -> tuple[str, str]:
 def _format_price_display(price: float, currency_code: str, currency_symbol: str) -> str:
     if price <= 0:
         return ""
-    if currency_code == "USD":
-        return f"${price:g}"
-    return f"{currency_symbol} {price:g}"
+    return f"${price:g}" if currency_code == "USD" else f"{currency_symbol} {price:g}"
 
 
 def _best_transit_link(city: str, link: str = "") -> str:
@@ -87,6 +86,24 @@ def _best_transit_link(city: str, link: str = "") -> str:
     if link and "google.com/search" not in link:
         return link
     return TRANSIT_REFERENCE_LINKS.get(city.strip().lower(), "")
+
+
+def _to_usd(price: float, currency_code: str) -> float:
+    """Convert a price from currency_code to USD using live rates with hardcoded fallback."""
+    if currency_code == "USD" or price <= 0:
+        return price
+    try:
+        from services.currency_conversion import get_usd_rate
+        rate = get_usd_rate(currency_code)
+        return round(price * rate, 2)
+    except Exception:
+        # Hardcoded fallback rates
+        fallback = {
+            "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067, "CNY": 0.14,
+            "SGD": 0.74, "KRW": 0.00074, "CAD": 0.73, "AUD": 0.65,
+        }
+        rate = fallback.get(currency_code.upper(), 1.0)
+        return round(price * rate, 2)
 
 
 def _build_car_search_url(city: str, pickup_date: str, dropoff_date: str) -> str:
@@ -182,8 +199,8 @@ def _search_rapidapi_cars(
             total_price = (
                 price_info.get("total_price")
                 or price_info.get("price")
-                or vehicle.get("price_all_days")
-                or vehicle.get("totalPrice")
+                or price_info.get("price_all_days")
+                or price_info.get("totalPrice")
                 or 0
             )
             total_price = float(total_price) if total_price else 0
@@ -525,6 +542,15 @@ def _search_serpapi_transit(city: str) -> list[dict]:
             seen.add(key)
             unique.append(r)
 
+    # Convert all prices to USD before returning
+    for r in unique:
+        currency_code = r.get("currency_code", "USD")
+        if currency_code != "USD" and r.get("price", 0) > 0:
+            r["price"] = _to_usd(r["price"], currency_code)
+            r["currency_code"] = "USD"
+            r["currency_symbol"] = "$"
+            r["price_display"] = f"${r['price']:g}"
+
     return unique[:5]
 
 
@@ -533,61 +559,6 @@ def _parse_transit_result(title: str, snippet: str, link: str, city: str) -> dic
     Parse a Google search result into a transit pass object.
     Attempts to extract price, name, and type from the search result.
     """
-    import re
-
-    # Try to extract a price from the snippet or title
-    price = 0
-    price_matches = re.findall(
-        r'[\$€£¥]\s*(\d+(?:\.\d{2})?)|(\d+(?:\.\d{2})?)\s*(?:USD|EUR|GBP|dollars?)',
-        snippet + " " + title,
-        re.IGNORECASE,
-    )
-    if price_matches:
-        for match in price_matches:
-            val = match[0] or match[1]
-            try:
-                p = float(val)
-                if 1 <= p <= 500:  # Reasonable transit pass price range
-                    price = p
-                    break
-            except ValueError:
-                continue
-
-    # Determine pass type
-    pass_type = "transit_card"
-    lower = (title + " " + snippet).lower()
-    if any(k in lower for k in ["rail pass", "train pass", "jr pass"]):
-        pass_type = "rail_pass"
-    elif any(k in lower for k in ["metro pass", "subway pass", "unlimited"]):
-        pass_type = "metro_pass"
-    elif any(k in lower for k in ["day pass", "day ticket", "24-hour", "48-hour", "72-hour"]):
-        pass_type = "day_pass"
-
-    # Clean up the title
-    name = title.strip()
-    # Remove common suffixes that aren't helpful
-    for suffix in [" - Google Search", " | Google Maps", " - Wikipedia"]:
-        name = name.replace(suffix, "")
-    name = name[:80]  # Truncate long titles
-
-    if not name:
-        return None
-
-    # Build a useful description from the snippet
-    description = snippet[:200].strip() if snippet else f"Public transit option for {city}"
-
-    return {
-        "name": name,
-        "type": pass_type,
-        "price": price,
-        "description": description,
-        "url": link or f"https://www.google.com/search?q={urllib.parse.quote(city)}+public+transit+pass",
-    }
-
-
-# ── Fallback: Curated transit data ────────────────────────────
-
-def _parse_transit_result_legacy(title: str, snippet: str, link: str, city: str) -> dict | None:
     text = f"{snippet} {title}".strip()
     currency_code, currency_symbol = _detect_currency(text)
 
@@ -627,15 +598,18 @@ def _parse_transit_result_legacy(title: str, snippet: str, link: str, city: str)
     if not name:
         return None
 
+    # Convert price to USD
+    usd_price = _to_usd(price, currency_code) if price > 0 else 0
+
     booking_url = _best_transit_link(city, link)
     description = snippet[:200].strip() if snippet else f"Public transit option for {city}"
     return {
         "name": name,
         "type": pass_type,
-        "price": price,
-        "currency_code": currency_code,
-        "currency_symbol": currency_symbol,
-        "price_display": _format_price_display(price, currency_code, currency_symbol),
+        "price": usd_price,
+        "currency_code": "USD",
+        "currency_symbol": "$",
+        "price_display": f"${usd_price:g}" if usd_price > 0 else "",
         "description": description,
         "url": booking_url,
         "booking_url": booking_url,
@@ -653,13 +627,16 @@ def _fallback_transit_result(title: str, snippet: str, link: str, city: str) -> 
         "type": "transit_card",
         "price": 0,
         "currency_code": "USD",
-        "currency_symbol": _currency_symbol("USD"),
+        "currency_symbol": "$",
         "price_display": "",
         "description": snippet[:200].strip() if snippet else f"Public transit information for {city}",
         "url": booking_url,
         "booking_url": booking_url,
     }
 
+
+# ── Curated transit data (fallback) ───────────────────────────
+# All prices are in USD.
 
 TRANSIT_OPTIONS = {
     "Tokyo": [
@@ -692,7 +669,8 @@ TRANSIT_OPTIONS = {
         {"name": "Discover Seoul Pass (72h)", "type": "metro_pass", "price": 55, "description": "Free transport + entry to 30+ attractions", "url": "https://www.discoverseoulpass.com/"},
     ],
     "Chongqing": [
-        {"name": "Chongqing Public Transit", "type": "transit_card", "price": 20, "currency_code": "CNY", "currency_symbol": "RMB", "description": "Reference transit fare and pass information for Chongqing rail transit and local buses", "url": "https://www.cqmetro.cn/", "booking_url": "https://www.cqmetro.cn/"},
+        # Price converted from CNY 20 → ~$3 USD
+        {"name": "Chongqing Rail Transit Day Pass", "type": "transit_card", "price": 3, "description": "Day pass for Chongqing metro and rail transit", "url": "https://www.cqmetro.cn/", "booking_url": "https://www.cqmetro.cn/"},
     ],
 }
 
@@ -704,6 +682,7 @@ def search_transit(city: str) -> list[dict]:
     Return public transit options for a city.
     Primary: SerpAPI Google Search for real-time transit pass information.
     Fallback: Curated static data with real URLs.
+    All prices returned are in USD.
     """
     # Try SerpAPI search first
     if Config.SERPAPI_KEY:
@@ -718,32 +697,22 @@ def search_transit(city: str) -> list[dict]:
         except Exception:
             logger.exception("SerpAPI transit search failed for %s, using fallback", city)
 
-    # Fallback to curated data
+    # Fallback to curated data (all prices already in USD)
     options = TRANSIT_OPTIONS.get(city, [])
     if options:
         normalized = []
         for option in options:
+            price = option.get("price", 0)
             normalized.append({
                 **option,
-                "currency_code": option.get("currency_code", "USD"),
-                "currency_symbol": option.get("currency_symbol", _currency_symbol(option.get("currency_code", "USD"))),
-                "price_display": option.get(
-                    "price_display",
-                    _format_price_display(option.get("price", 0), option.get("currency_code", "USD"), option.get("currency_symbol", _currency_symbol(option.get("currency_code", "USD")))),
-                ),
+                "price": price,
+                "currency_code": "USD",
+                "currency_symbol": "$",
+                "price_display": f"${price:g}" if price > 0 else "",
                 "booking_url": option.get("booking_url", option.get("url", "")),
             })
         return normalized
 
-    # Last resort: no fabricated search URL
-    return [{
-        "name": f"{city} Public Transit",
-        "type": "transit_card",
-        "price": 0,
-        "currency_code": "USD",
-        "currency_symbol": "$",
-        "price_display": "",
-        "description": f"Local transit pass for {city}",
-        "url": _best_transit_link(city),
-        "booking_url": _best_transit_link(city),
-    }]
+    # No data found — return empty so the agent omits transit rather than showing a $0 placeholder
+    logger.info("No transit data found for %s — omitting transit suggestion", city)
+    return []

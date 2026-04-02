@@ -8,10 +8,11 @@ import {
 
 function formatCurrency(amount, item = {}) {
   if (!amount && amount !== 0) return '—';
-  const symbol = item.currency_symbol || '$';
   const code = item.currency_code || 'USD';
-  if (code === 'USD') return `$${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-  return `${symbol}${amount.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const symbol = item.currency_symbol || '$';
+  const formatted = Math.round(amount).toLocaleString('en-US');
+  if (code === 'USD') return `$${formatted}`;
+  return `${symbol}${formatted}`;
 }
 
 function formatDate(dateStr) {
@@ -72,10 +73,12 @@ function formatDuration(minutes) {
   return h > 0 ? `${h}h ${m > 0 ? `${m}m` : ''}`.trim() : `${m}m`;
 }
 
-function getItineraryCurrencyState(items) {
-  const codes = [...new Set(items.map(i => i.currency_code).filter(Boolean))];
-  if (codes.length <= 1) return { mixed: false, currencyCode: codes[0] || 'USD' };
-  return { mixed: true, currencyCode: null };
+// All prices are normalized to USD by the backend. We always show a single USD total.
+// The "mixed currency" escape hatch is intentionally removed — if the backend is doing
+// its job, every cost field arrives in USD and we can always sum cleanly.
+function getTotalCostUSD(items, itineraryTotal) {
+  if (itineraryTotal && itineraryTotal > 0) return itineraryTotal;
+  return items.reduce((sum, i) => sum + (i.cost || 0), 0);
 }
 
 // ── Icon map per type ─────────────────────────────────────────
@@ -123,29 +126,26 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
         <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{depTime}</p>
       </div>
 
-      <div className="flex-1 flex flex-col items-center gap-1">
-        {/* Route line */}
-        <div className="w-full flex items-center gap-1">
-          <div className="w-1.5 h-1.5 bg-ramp-text-secondary flex-shrink-0" />
-          <div className="flex-1 h-px bg-ramp-border relative">
-            {!isNonstop && layovers?.map((_, i) => (
-              <div
-                key={i}
-                className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-ramp-text-tertiary border border-ramp-surface"
-                style={{ left: `${((i + 1) / (layovers.length + 1)) * 100}%` }}
-              />
-            ))}
-          </div>
-          <Plane size={12} className="text-ramp-text-secondary flex-shrink-0" />
+      <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
+        <div className="flex items-center gap-1.5 w-full">
           <div className="flex-1 h-px bg-ramp-border" />
-          <div className="w-1.5 h-1.5 bg-ramp-text flex-shrink-0" />
+          {isNonstop ? (
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-ramp-green px-1.5 py-0.5 border border-ramp-green/30 bg-ramp-green/5 flex-shrink-0">
+              Nonstop
+            </span>
+          ) : (
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-ramp-text-tertiary px-1.5 py-0.5 border border-ramp-border bg-ramp-surface-alt flex-shrink-0">
+              {layovers?.length || segments.length - 1} stop{(layovers?.length || segments.length - 1) !== 1 ? 's' : ''}
+            </span>
+          )}
+          <div className="flex-1 h-px bg-ramp-border" />
         </div>
-        {/* Duration label */}
-        <p className="text-[10px] text-ramp-text-tertiary">
-          {isNonstop
-            ? `Nonstop · ${formatDuration(durationMinutes)}`
-            : `${layovers?.length || 0} stop${(layovers?.length || 0) !== 1 ? 's' : ''} · ${formatDuration(durationMinutes)}`}
-        </p>
+        {durationMinutes > 0 && (
+          <p className="text-[10px] text-ramp-text-tertiary flex items-center gap-1">
+            <Clock size={9} />
+            {formatDuration(durationMinutes)}
+          </p>
+        )}
       </div>
 
       <div className="text-center">
@@ -156,36 +156,45 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
   );
 }
 
-// ── Flight Leg Expanded Details ───────────────────────────────
+// ── Flight Leg Detail Rows ────────────────────────────────────
 
 function FlightLegDetails({ segments, layovers }) {
-  if (!segments?.length) return null;
+  if (!segments || segments.length === 0) return null;
+
   return (
     <div className="space-y-0">
       {segments.map((seg, idx) => (
         <React.Fragment key={idx}>
-          <div className="flex items-start gap-3 py-2.5">
-            <div className="flex flex-col items-center flex-shrink-0 mt-1">
-              <div className="w-2 h-2 border border-ramp-text-secondary bg-ramp-surface" />
-              {idx < segments.length - 1 && <div className="w-px flex-1 bg-ramp-border mt-1 min-h-[20px]" />}
+          <div className="flex items-start gap-3 py-2">
+            <div className="flex flex-col items-center pt-1 flex-shrink-0">
+              <div className="w-1.5 h-1.5 rounded-full bg-ramp-text-tertiary" />
+              {idx < segments.length - 1 && <div className="w-px h-8 bg-ramp-border mt-1" />}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold text-ramp-text">{seg.flight_number}</span>
-                {seg.aircraft && <span className="text-[10px] text-ramp-text-tertiary">{seg.aircraft}</span>}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-ramp-text">
+                    {seg.origin} → {seg.destination}
+                  </p>
+                  <p className="text-[10px] text-ramp-text-tertiary mt-0.5">
+                    {formatTime(seg.departure_time)} → {formatTime(seg.arrival_time)}
+                    {seg.duration_minutes ? ` · ${formatDuration(seg.duration_minutes)}` : ''}
+                  </p>
+                </div>
+                {seg.flight_number && (
+                  <span className="text-[10px] text-ramp-text-tertiary border border-ramp-border px-1.5 py-0.5 flex-shrink-0">
+                    {seg.flight_number}
+                  </span>
+                )}
               </div>
-              <div className="flex items-center gap-2 text-xs text-ramp-text-secondary mt-0.5">
-                <span className="font-mono font-medium text-ramp-text">{seg.origin}</span>
-                <span>{formatTime(seg.departure_time)}</span>
-                <ArrowRight size={10} className="text-ramp-text-tertiary" />
-                <span className="font-mono font-medium text-ramp-text">{seg.destination}</span>
-                <span>{formatTime(seg.arrival_time)}</span>
-              </div>
-              <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{formatDuration(seg.duration_minutes)}</p>
+              {seg.aircraft && (
+                <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{seg.aircraft}</p>
+              )}
             </div>
           </div>
 
-          {idx < segments.length - 1 && layovers?.[idx] && (
+          {/* Layover info between segments */}
+          {layovers && layovers[idx] && (
             <div className="ml-5 border-l border-dashed border-ramp-border-strong pl-4 py-2 my-1">
               <p className="text-[11px] text-ramp-text-secondary font-medium">
                 Layover · {layovers[idx].city !== '—' ? layovers[idx].city : ''} ({layovers[idx].airport})
@@ -365,51 +374,39 @@ function HotelCard({ item }) {
             <div className="text-right flex-shrink-0">
               <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
               {d.nights && <p className="text-[10px] text-ramp-text-tertiary">{d.nights} night{d.nights !== 1 ? 's' : ''}</p>}
+              {d.price_per_night && <p className="text-[10px] text-ramp-text-tertiary">{formatCurrency(d.price_per_night, item)}/night</p>}
             </div>
           </div>
 
-          {/* Rating + stars */}
-          {(d.guest_rating || d.stars) && (
-            <div className="flex items-center gap-3 text-[11px]">
-              {d.stars && (
-                <div className="flex items-center gap-0.5">
-                  {Array.from({ length: Math.round(d.stars) }).map((_, i) => (
-                    <Star key={i} size={10} className="fill-ramp-yellow text-ramp-yellow" />
-                  ))}
-                </div>
-              )}
-              {d.guest_rating && (
-                <span className="text-ramp-text-secondary">{d.guest_rating}/5 guest rating</span>
-              )}
-            </div>
-          )}
-
-          {/* Dates */}
-          {(item.date || item.end_date) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-ramp-text-tertiary">
-              <Calendar size={10} />
-              <span>{formatDate(item.date)}</span>
-              <ArrowRight size={10} />
-              <span>{formatDate(item.end_date)}</span>
-            </div>
-          )}
+          {/* Star rating + guest rating */}
+          <div className="flex items-center gap-3">
+            {d.stars > 0 && (
+              <div className="flex items-center gap-0.5">
+                {[...Array(Math.min(Math.floor(d.stars), 5))].map((_, i) => (
+                  <Star key={i} size={9} className="fill-ramp-yellow text-ramp-yellow" />
+                ))}
+              </div>
+            )}
+            {d.guest_rating > 0 && (
+              <span className="text-[10px] text-ramp-text-secondary">
+                {d.guest_rating.toFixed(1)} guest rating
+              </span>
+            )}
+          </div>
 
           {/* Amenities */}
           {d.amenities?.length > 0 && (
             <div className="flex flex-wrap gap-1">
-              {d.amenities.slice(0, 4).map((a) => (
-                <span key={a} className="text-[10px] px-1.5 py-0.5 bg-ramp-surface-alt border border-ramp-border text-ramp-text-secondary">
+              {d.amenities.slice(0, 4).map((a, i) => (
+                <span key={i} className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">
                   {a}
                 </span>
               ))}
-              {d.amenities.length > 4 && (
-                <span className="text-[10px] px-1.5 py-0.5 text-ramp-text-tertiary">+{d.amenities.length - 4} more</span>
-              )}
             </div>
           )}
 
-          {/* Footer */}
-          <div className="flex items-center justify-between pt-1 border-t border-ramp-border">
+          {/* Cancellation */}
+          <div className="flex items-center gap-1">
             {d.cancellation_policy?.toLowerCase().includes('free')
               ? <span className="text-[10px] text-ramp-green font-medium">✓ Free cancellation</span>
               : <span className="text-[10px] text-ramp-text-tertiary">{d.cancellation_policy || 'Check cancellation policy'}</span>
@@ -485,7 +482,7 @@ function TimelineDot({ type }) {
 
 // ── Timeline Item ─────────────────────────────────────────────
 
-function TimelineItem({ item, index, isLast, runningCost, mixedCurrencies }) {
+function TimelineItem({ item, index, isLast, runningCost }) {
   const cardMap = { flight: FlightCard, hotel: HotelCard, transit: TransitCard, activity: ActivityCard };
   const Card = cardMap[item.type] || ActivityCard;
 
@@ -502,7 +499,7 @@ function TimelineItem({ item, index, isLast, runningCost, mixedCurrencies }) {
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-ramp-text-secondary">{formatDate(item.date)}</span>
           <span className="text-[10px] text-ramp-text-tertiary">
-            {mixedCurrencies ? '' : `Running: ${formatCurrency(runningCost, item)}`}
+            {runningCost > 0 ? `Running: ${formatCurrency(runningCost, { currency_code: 'USD', currency_symbol: '$' })}` : ''}
           </span>
         </div>
         <Card item={item} />
@@ -517,8 +514,10 @@ export default function ItineraryTimeline({ itinerary }) {
   if (!itinerary) return null;
 
   const items = itinerary.items || [];
-  const totalCost = itinerary.total_cost || items.reduce((sum, i) => sum + (i.cost || 0), 0);
-  const itineraryCurrency = getItineraryCurrencyState(items);
+
+  // All costs are in USD — the backend normalises everything before returning.
+  // Sum them directly; no mixed-currency check needed.
+  const totalCost = getTotalCostUSD(items, itinerary.total_cost);
 
   let running = 0;
   const runningCosts = items.map((item) => {
@@ -572,9 +571,7 @@ export default function ItineraryTimeline({ itinerary }) {
           </div>
           <div className="text-right flex-shrink-0">
             <p className="text-2xl font-bold text-ramp-text">
-              {itineraryCurrency.mixed
-                ? 'See breakdown'
-                : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode, currency_symbol: items[0]?.currency_symbol })}
+              {formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}
             </p>
             <p className="text-xs text-ramp-text-tertiary mt-0.5">estimated total</p>
           </div>
@@ -590,7 +587,6 @@ export default function ItineraryTimeline({ itinerary }) {
             index={idx}
             isLast={idx === items.length - 1}
             runningCost={runningCosts[idx]}
-            mixedCurrencies={itineraryCurrency.mixed}
           />
         ))}
       </div>
