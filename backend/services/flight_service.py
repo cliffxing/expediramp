@@ -163,13 +163,19 @@ def _build_booking_links(
     Supports both one-way and round-trip URLs.
     """
     return {
-        "google_flights": _google_flights_url(origin, destination, departure_date, cabin_class, passengers, return_date),
-        "kayak": _kayak_url(origin, destination, departure_date, cabin_class, passengers, return_date),
-        "skyscanner": _skyscanner_url(origin, destination, departure_date, cabin_class, passengers, return_date),
+        "google_flights": _google_flights_url(
+            origin, destination, departure_date, cabin_class, passengers, return_date
+        ),
+        "kayak": _kayak_url(
+            origin, destination, departure_date, cabin_class, passengers, return_date
+        ),
+        "skyscanner": _skyscanner_url(
+            origin, destination, departure_date, cabin_class, passengers, return_date
+        ),
     }
 
 
-# ── Protobuf-based Google Flights URL builder ─────────────────
+# ── Google Flights protobuf URL builders ──────────────────────
 
 def _build_one_way_tfs(
     origin: str,
@@ -179,7 +185,6 @@ def _build_one_way_tfs(
 ) -> str:
     """
     Build the Google Flights `tfs` query parameter for a one-way flight search.
-
     This encodes the search as a Base64 URL-safe protobuf string — the same
     format Google Flights uses internally when you perform a search in the UI.
 
@@ -323,472 +328,47 @@ def _get_airport_enum(iata_code: str):
         return None
 
 
-# ── Core search using fli (ONE-WAY) ───────────────────────────
-
-def _search_fli(
-    origin: str,
-    destination: str,
-    departure_date: str,
-    cabin_class: str,
-    passengers: int,
-    max_results: int,
-    exclude_airports: list[str] | None,
-    sort_by: str = "best",
-) -> list[dict]:
-    """
-    Search ONE-WAY flights using the flights (fli) package — direct Google Flights API.
-    Returns results in the same format as the rest of ExpediRamp expects.
-
-    IMPORTANT: The fli package returns the TOTAL price for all passengers
-    (since we pass PassengerInfo(adults=passengers)). We must NOT multiply
-    by passengers again. price_per_person = total_price / passengers.
-    """
-    from fli.models import (
-        Airport, PassengerInfo, SeatType, MaxStops, SortBy,
-        FlightSearchFilters, FlightSegment, TripType,
-    )
-    from fli.search import SearchFlights
-
-    # Map cabin class string → SeatType enum
-    seat_map = {
-        "economy": SeatType.ECONOMY,
-        "premium_economy": SeatType.PREMIUM_ECONOMY,
-        "business": SeatType.BUSINESS,
-        "first": SeatType.FIRST,
-    }
-
-    # Map sort preference → SortBy enum
-    sort_map = {
-        "best": SortBy.TOP_FLIGHTS,
-        "cheapest": SortBy.CHEAPEST,
-        "fastest": SortBy.DURATION,
-    }
-
-    # Resolve Airport enums
-    origin_airport = _get_airport_enum(origin)
-    dest_airport = _get_airport_enum(destination)
-
-    if origin_airport is None or dest_airport is None:
-        logger.warning(
-            "Airport code not found in fli Airport enum: origin=%s (%s), dest=%s (%s)",
-            origin, "found" if origin_airport else "MISSING",
-            destination, "found" if dest_airport else "MISSING",
-        )
-        return []
-
-    # Build search filters — ONE-WAY with 1 adult
-    # We always search for 1 passenger and multiply later to avoid
-    # the fli package's inconsistent multi-passenger pricing
-    filters = FlightSearchFilters(
-        trip_type=TripType.ONE_WAY,
-        passenger_info=PassengerInfo(adults=1),
-        flight_segments=[
-            FlightSegment(
-                departure_airport=[[origin_airport, 0]],
-                arrival_airport=[[dest_airport, 0]],
-                travel_date=departure_date,
-            )
-        ],
-        seat_type=seat_map.get(cabin_class, SeatType.ECONOMY),
-        stops=MaxStops.ANY,
-        sort_by=sort_map.get(sort_by, SortBy.TOP_FLIGHTS),
-    )
-
-    # Execute search
-    search = SearchFlights()
-    flight_results = search.search(filters)
-
-    if not flight_results:
-        logger.warning("fli returned no results for %s → %s on %s", origin, destination, departure_date)
-        return []
-
-    logger.info("fli returned %d results for %s → %s", len(flight_results), origin, destination)
-
-    exclude = set(a.upper() for a in (exclude_airports or []))
-    results = []
-
-    for i, flight in enumerate(flight_results):
-        # flight is a FlightResult with: price, duration, stops, legs, currency
-
-        # Extract airline code from the first leg
-        first_leg = flight.legs[0] if flight.legs else None
-        if not first_leg:
-            continue
-
-        # The airline attribute is an Airline enum — .name gives the IATA code
-        airline_code = first_leg.airline.name if first_leg.airline else ""
-        airline_name = first_leg.airline.value if first_leg.airline else "Unknown Airline"
-
-        # If airline_name is just the code (some enums use code as value), make it readable
-        if airline_name == airline_code:
-            airline_name = airline_code  # We'll just use the code
-
-        # Check if any leg involves an excluded airport
-        skip = False
-        for leg in flight.legs:
-            dep_code = leg.departure_airport.name if leg.departure_airport else ""
-            arr_code = leg.arrival_airport.name if leg.arrival_airport else ""
-            if dep_code in exclude or arr_code in exclude:
-                skip = True
-                break
-        if skip:
-            continue
-
-        # PRICE FIX: fli returns price PER PERSON for 1-adult search.
-        # We searched with adults=1, so flight.price = per-person price.
-        # total_price = per_person * passengers (the user's actual count).
-        price_per_person = float(flight.price) if flight.price else 0
-        total_price = price_per_person * passengers
-
-        # Build segments list from legs
-        segments = []
-        for leg in flight.legs:
-            dep_code = leg.departure_airport.name if leg.departure_airport else origin
-            arr_code = leg.arrival_airport.name if leg.arrival_airport else destination
-            dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
-            arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
-            dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
-
-            # Extract flight number
-            flight_num = ""
-            if hasattr(leg, 'flight_number') and leg.flight_number:
-                flight_num = leg.flight_number
-            elif airline_code:
-                flight_num = f"{airline_code} {i + 1}"
-
-            segments.append({
-                "origin": dep_code,
-                "destination": arr_code,
-                "departure_time": dep_time,
-                "arrival_time": arr_time,
-                "flight_number": flight_num,
-                "duration_minutes": dur,
-                "aircraft": getattr(leg, 'aircraft', '') or "",
-            })
-
-        # Build layovers list
-        is_nonstop = len(segments) <= 1
-        layovers = []
-        for j in range(len(segments) - 1):
-            arr_seg = segments[j]
-            dep_seg = segments[j + 1]
-
-            layover_dur = 0
-            if arr_seg["arrival_time"] and dep_seg["departure_time"]:
-                try:
-                    arr_dt = datetime.strptime(arr_seg["arrival_time"], "%Y-%m-%d %H:%M")
-                    dep_dt = datetime.strptime(dep_seg["departure_time"], "%Y-%m-%d %H:%M")
-                    layover_dur = int((dep_dt - arr_dt).total_seconds() / 60)
-                except Exception:
-                    pass
-
-            layover_airport = arr_seg["destination"]
-            num_stops = len(segments) - 1
-
-            layovers.append({
-                "airport": layover_airport,
-                "airport_name": layover_airport,
-                "description": f"{num_stops} stop(s)",
-                "city": "—",
-                "duration_minutes": layover_dur,
-            })
-
-        # If we have no layovers but flight has multiple segments, add placeholder
-        if not layovers and not is_nonstop:
-            num_stops = getattr(flight, 'stops', 0) or 0
-            layovers.append({
-                "airport": "—",
-                "airport_name": "",
-                "description": f"{num_stops} stop(s)",
-                "city": "—",
-                "duration_minutes": 0,
-            })
-
-        total_duration = flight.duration if flight.duration else 0
-
-        # Build booking links to reliable aggregators (one-way)
-        booking_links = _build_booking_links(
-            origin, destination, departure_date, cabin_class, passengers
-        )
-        # Primary booking_url = Google Flights (proven protobuf encoding)
-        booking_url = booking_links["google_flights"]
-
-        results.append({
-            "id": f"fli_{origin}_{destination}_{i}",
-            "airline": {
-                "code": airline_code,
-                "name": airline_name,
-                "logo": _airline_logo(airline_code) if airline_code else "",
-            },
-            "segments": segments,
-            "layovers": layovers,
-            "is_nonstop": is_nonstop,
-            "is_round_trip": False,
-            "trip_type": "one_way",
-            "total_duration_minutes": total_duration,
-            "cabin_class": cabin_class,
-            "price_per_person": round(price_per_person, 2),
-            "total_price": round(total_price, 2),
-            "passengers": passengers,
-            "departure_date": departure_date,
-            "booking_url": booking_url,
-            "booking_links": booking_links,
-            "currency_code": _DETECTED_CURRENCY,
-            "currency_symbol": _DETECTED_SYMBOL,
-        })
-
-    # ── Smart ranking (for "best" mode) ─────────────────────────
-    if sort_by != "cheapest" and len(results) > 1:
-        results = _rank_by_value(results)
-    else:
-        # Pure price sort for "cheapest" mode
-        results.sort(key=lambda x: (x["total_price"] == 0, x["total_price"]))
-
-    logger.info("Returning %d flights (from %d raw, sort=%s)", len(results[:max_results]), len(flight_results), sort_by)
-    return results[:max_results]
-
-
-# ── Core search using fli (ROUND-TRIP) ─────────────────────────
-
-def _search_fli_roundtrip(
-    origin: str,
-    destination: str,
-    departure_date: str,
-    return_date: str,
-    cabin_class: str,
-    passengers: int,
-    max_results: int,
-    exclude_airports: list[str] | None,
-    sort_by: str = "best",
-) -> list[dict]:
-    """
-    Search ROUND-TRIP flights using the flights (fli) package.
-    Returns results with both outbound and return segments grouped together.
-
-    The fli package's TripType.ROUND_TRIP returns flights that include
-    both outbound and return legs. The price is the total round-trip
-    price for all passengers.
-
-    We search with adults=1 to get per-person pricing, then multiply.
-    """
-    from fli.models import (
-        Airport, PassengerInfo, SeatType, MaxStops, SortBy,
-        FlightSearchFilters, FlightSegment, TripType,
-    )
-    from fli.search import SearchFlights
-
-    seat_map = {
-        "economy": SeatType.ECONOMY,
-        "premium_economy": SeatType.PREMIUM_ECONOMY,
-        "business": SeatType.BUSINESS,
-        "first": SeatType.FIRST,
-    }
-    sort_map = {
-        "best": SortBy.TOP_FLIGHTS,
-        "cheapest": SortBy.CHEAPEST,
-        "fastest": SortBy.DURATION,
-    }
-
-    origin_airport = _get_airport_enum(origin)
-    dest_airport = _get_airport_enum(destination)
-
-    if origin_airport is None or dest_airport is None:
-        logger.warning(
-            "Airport code not found for round-trip: origin=%s (%s), dest=%s (%s)",
-            origin, "found" if origin_airport else "MISSING",
-            destination, "found" if dest_airport else "MISSING",
-        )
-        return []
-
-    # Build round-trip search with 1 adult for per-person pricing
-    filters = FlightSearchFilters(
-        trip_type=TripType.ROUND_TRIP,
-        passenger_info=PassengerInfo(adults=1),
-        flight_segments=[
-            FlightSegment(
-                departure_airport=[[origin_airport, 0]],
-                arrival_airport=[[dest_airport, 0]],
-                travel_date=departure_date,
-            ),
-            FlightSegment(
-                departure_airport=[[dest_airport, 0]],
-                arrival_airport=[[origin_airport, 0]],
-                travel_date=return_date,
-            ),
-        ],
-        seat_type=seat_map.get(cabin_class, SeatType.ECONOMY),
-        stops=MaxStops.ANY,
-        sort_by=sort_map.get(sort_by, SortBy.TOP_FLIGHTS),
-    )
-
-    search = SearchFlights()
-    flight_results = search.search(filters)
-
-    if not flight_results:
-        logger.warning("fli round-trip returned no results for %s ↔ %s on %s / %s",
-                       origin, destination, departure_date, return_date)
-        return []
-
-    logger.info("fli round-trip returned %d results for %s ↔ %s", len(flight_results), origin, destination)
-
-    exclude = set(a.upper() for a in (exclude_airports or []))
-    results = []
-
-    for i, result_item in enumerate(flight_results):
-        # CRITICAL: fli returns list[tuple(FlightResult, FlightResult)] for round trips.
-        # Each item is (outbound_flight, return_flight).
-        if isinstance(result_item, tuple) and len(result_item) == 2:
-            outbound_flight, return_flight = result_item
-        else:
-            # Fallback if fli changes format — treat as single flight
-            logger.warning("Unexpected round-trip result format at index %d: %s", i, type(result_item))
-            continue
-
-        # Extract airline from outbound first leg
-        out_first_leg = outbound_flight.legs[0] if outbound_flight.legs else None
-        if not out_first_leg:
-            continue
-
-        airline_code = out_first_leg.airline.name if out_first_leg.airline else ""
-        airline_name = out_first_leg.airline.value if out_first_leg.airline else "Unknown Airline"
-        if airline_name == airline_code:
-            airline_name = airline_code
-
-        # Check excluded airports across both directions
-        skip = False
-        all_legs = list(outbound_flight.legs or []) + list(return_flight.legs or [])
-        for leg in all_legs:
-            dep_code = leg.departure_airport.name if leg.departure_airport else ""
-            arr_code = leg.arrival_airport.name if leg.arrival_airport else ""
-            if dep_code in exclude or arr_code in exclude:
-                skip = True
-                break
-        if skip:
-            continue
-
-        # PRICE: outbound.price is the total round-trip price per person
-        price_per_person = float(outbound_flight.price) if outbound_flight.price else 0
-        total_price = price_per_person * passengers
-
-        # Helper to extract segments from a FlightResult's legs
-        def _extract_segments(flight_obj, fallback_origin, fallback_dest):
-            segs = []
-            for leg in (flight_obj.legs or []):
-                dep_code = leg.departure_airport.name if leg.departure_airport else fallback_origin
-                arr_code = leg.arrival_airport.name if leg.arrival_airport else fallback_dest
-                dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
-                arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
-                dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
-
-                flight_num = ""
-                if hasattr(leg, 'flight_number') and leg.flight_number:
-                    acode = leg.airline.name if leg.airline else airline_code
-                    flight_num = f"{acode} {leg.flight_number}"
-                elif airline_code:
-                    flight_num = f"{airline_code} {len(segs) + 1}"
-
-                segs.append({
-                    "origin": dep_code,
-                    "destination": arr_code,
-                    "departure_time": dep_time,
-                    "arrival_time": arr_time,
-                    "flight_number": flight_num,
-                    "duration_minutes": dur,
-                    "aircraft": getattr(leg, 'aircraft', '') or "",
-                })
-            return segs
-
-        outbound_segments = _extract_segments(outbound_flight, origin, destination)
-        return_segments = _extract_segments(return_flight, destination, origin)
-
-        # Build layovers for outbound and return
-        outbound_layovers = _build_layovers(outbound_segments)
-        return_layovers = _build_layovers(return_segments)
-
-        # Combine all segments and layovers for the full trip view
-        all_segments = outbound_segments + return_segments
-        all_layovers = outbound_layovers + return_layovers
-
-        outbound_nonstop = len(outbound_segments) <= 1
-        return_nonstop = len(return_segments) <= 1
-
-        # Compute outbound and return durations
-        outbound_duration = _compute_leg_duration(outbound_segments)
-        return_duration = _compute_leg_duration(return_segments)
-
-        # Total duration = outbound + return (fli gives duration per FlightResult)
-        out_dur = outbound_flight.duration if outbound_flight.duration else outbound_duration
-        ret_dur = return_flight.duration if return_flight.duration else return_duration
-        total_duration = out_dur + ret_dur
-
-        # Build round-trip booking links
-        booking_links = _build_booking_links(
-            origin, destination, departure_date, cabin_class, passengers,
-            return_date=return_date,
-        )
-        booking_url = booking_links["google_flights"]
-
-        results.append({
-            "id": f"fli_rt_{origin}_{destination}_{i}",
-            "airline": {
-                "code": airline_code,
-                "name": airline_name,
-                "logo": _airline_logo(airline_code) if airline_code else "",
-            },
-            # Full trip data
-            "segments": all_segments,
-            "layovers": all_layovers,
-            "is_nonstop": outbound_nonstop and return_nonstop,
-            "is_round_trip": True,
-            "trip_type": "round_trip",
-            "total_duration_minutes": total_duration,
-            # Outbound details
-            "outbound_segments": outbound_segments,
-            "outbound_layovers": outbound_layovers,
-            "outbound_nonstop": outbound_nonstop,
-            "outbound_duration_minutes": outbound_duration,
-            # Return details
-            "return_segments": return_segments,
-            "return_layovers": return_layovers,
-            "return_nonstop": return_nonstop,
-            "return_duration_minutes": return_duration,
-            # Pricing & metadata
-            "cabin_class": cabin_class,
-            "price_per_person": round(price_per_person, 2),
-            "total_price": round(total_price, 2),
-            "passengers": passengers,
-            "departure_date": departure_date,
-            "return_date": return_date,
-            "booking_url": booking_url,
-            "booking_links": booking_links,
-            "currency_code": _DETECTED_CURRENCY,
-            "currency_symbol": _DETECTED_SYMBOL,
-        })
-
-    # Smart ranking
-    if sort_by != "cheapest" and len(results) > 1:
-        results = _rank_by_value(results)
-    else:
-        results.sort(key=lambda x: (x["total_price"] == 0, x["total_price"]))
-
-    logger.info("Returning %d round-trip flights (from %d raw, sort=%s)",
-                len(results[:max_results]), len(flight_results), sort_by)
-    return results[:max_results]
+# ── Layover & duration helpers ────────────────────────────────
+#
+# KEY TIMEZONE INSIGHT:
+#   departure_time / arrival_time are LOCAL wall-clock times at each airport
+#   (e.g. "2026-05-10 08:30" = 8:30am local time at that airport).
+#   They carry NO timezone info.
+#
+#   SAFE subtraction: times at the SAME airport (layover calc) — both are in
+#   the same timezone, so wall-clock subtraction gives correct results.
+#
+#   UNSAFE subtraction: departure at airport A vs arrival at airport B — these
+#   are in DIFFERENT timezones, so naive subtraction gives wrong/negative results
+#   (e.g., YYZ → NRT: Toronto departs 10:00, Tokyo arrives 14:00 next day local,
+#    naive diff = 4h, actual = ~14h including the +13h TZ offset).
+#
+#   SOLUTION: Use per-segment duration_minutes (provided by fli from Google Flights)
+#   for flight time, and safe same-airport subtraction for layover time only.
 
 
 def _build_layovers(segments: list[dict]) -> list[dict]:
-    """Build layover list between consecutive segments."""
+    """
+    Build layover list between consecutive segments.
+
+    Layover duration is SAFE to compute by wall-clock subtraction because
+    both the arriving flight's arrival_time and the departing flight's
+    departure_time are LOCAL times at the SAME connecting airport (same timezone).
+    We handle date rollovers (overnight layovers) naturally via datetime arithmetic.
+    """
     layovers = []
     for j in range(len(segments) - 1):
         arr_seg = segments[j]
         dep_seg = segments[j + 1]
 
         layover_dur = 0
-        if arr_seg["arrival_time"] and dep_seg["departure_time"]:
+        if arr_seg.get("arrival_time") and dep_seg.get("departure_time"):
             try:
                 arr_dt = datetime.strptime(arr_seg["arrival_time"], "%Y-%m-%d %H:%M")
                 dep_dt = datetime.strptime(dep_seg["departure_time"], "%Y-%m-%d %H:%M")
-                layover_dur = int((dep_dt - arr_dt).total_seconds() / 60)
+                diff = int((dep_dt - arr_dt).total_seconds() / 60)
+                # Layover must be non-negative; if somehow negative, fall back to 0
+                layover_dur = max(0, diff)
             except Exception:
                 pass
 
@@ -796,7 +376,7 @@ def _build_layovers(segments: list[dict]) -> list[dict]:
         layovers.append({
             "airport": layover_airport,
             "airport_name": layover_airport,
-            "description": f"Layover",
+            "description": "Layover",
             "city": "—",
             "duration_minutes": layover_dur,
         })
@@ -804,84 +384,38 @@ def _build_layovers(segments: list[dict]) -> list[dict]:
 
 
 def _compute_leg_duration(segments: list[dict]) -> int:
-    """Compute total duration of a set of segments (flight time + layovers)."""
+    """
+    Compute total duration of a flight leg (in-flight time + layovers).
+
+    IMPORTANT: Do NOT subtract first-departure from last-arrival across different
+    airports — those are local times in different timezones, giving wrong results
+    (including negative durations like -55m for long-haul international routes).
+
+    Instead:
+      1. Sum per-segment duration_minutes (in-flight only, provided by fli/Google).
+      2. Add layover durations computed by same-airport wall-clock subtraction (safe).
+    """
     if not segments:
         return 0
-    first_dep = segments[0].get("departure_time", "")
-    last_arr = segments[-1].get("arrival_time", "")
-    if first_dep and last_arr:
-        try:
-            dep_dt = datetime.strptime(first_dep, "%Y-%m-%d %H:%M")
-            arr_dt = datetime.strptime(last_arr, "%Y-%m-%d %H:%M")
-            return int((arr_dt - dep_dt).total_seconds() / 60)
-        except Exception:
-            pass
-    # Fallback: sum segment durations
-    return sum(s.get("duration_minutes", 0) for s in segments)
 
+    # Step 1: sum per-segment flight time (timezone-safe: provided by fli directly)
+    total_flight_minutes = sum(s.get("duration_minutes", 0) for s in segments)
 
-def _rank_by_value(flights: list[dict]) -> list[dict]:
-    """
-    Rank flights by a combined value score that balances price and duration.
-    Filters out extreme-duration outliers first, then scores the rest.
+    # Step 2: add layover durations (safe: same airport = same timezone)
+    layover_minutes = 0
+    for j in range(len(segments) - 1):
+        arr_seg = segments[j]
+        dep_seg = segments[j + 1]
+        if arr_seg.get("arrival_time") and dep_seg.get("departure_time"):
+            try:
+                arr_dt = datetime.strptime(arr_seg["arrival_time"], "%Y-%m-%d %H:%M")
+                dep_dt = datetime.strptime(dep_seg["departure_time"], "%Y-%m-%d %H:%M")
+                diff = int((dep_dt - arr_dt).total_seconds() / 60)
+                layover_minutes += max(0, diff)
+            except Exception:
+                pass
 
-    Logic:
-    1. Find the shortest flight duration among all results.
-    2. Remove flights whose duration exceeds 1.8x the shortest (outliers).
-       - But never remove ALL flights — keep at least the shortest.
-    3. Score remaining flights: 60% price rank + 40% duration rank.
-       Lowest score = best value.
-    """
-    # Separate zero-price (bad data) from valid flights
-    valid = [f for f in flights if f["total_price"] > 0]
-    zero_price = [f for f in flights if f["total_price"] == 0]
-
-    if not valid:
-        return flights  # nothing to rank
-
-    # Step 1: find shortest duration (ignoring 0-duration which means unknown)
-    durations = [f["total_duration_minutes"] for f in valid if f["total_duration_minutes"] > 0]
-    if durations:
-        shortest = min(durations)
-        # Step 2: filter outliers — anything over 1.8x the shortest is unreasonable
-        max_reasonable = shortest * 1.8
-
-        reasonable = [f for f in valid
-                      if f["total_duration_minutes"] == 0  # unknown duration — keep it
-                      or f["total_duration_minutes"] <= max_reasonable]
-
-        # Safety net: if filtering removed everything, keep the top 3 shortest
-        if not reasonable:
-            reasonable = sorted(valid, key=lambda x: x["total_duration_minutes"])[:3]
-
-        valid = reasonable
-
-    # Step 3: score by combined price + duration rank
-    n = len(valid)
-    if n == 1:
-        return valid + zero_price
-
-    # Rank by price (lower = better)
-    by_price = sorted(range(n), key=lambda i: valid[i]["total_price"])
-    price_rank = [0] * n
-    for rank, idx in enumerate(by_price):
-        price_rank[idx] = rank
-
-    # Rank by duration (lower = better), treat 0 as worst
-    by_duration = sorted(range(n), key=lambda i: (
-        valid[i]["total_duration_minutes"] == 0,  # unknown last
-        valid[i]["total_duration_minutes"]
-    ))
-    duration_rank = [0] * n
-    for rank, idx in enumerate(by_duration):
-        duration_rank[idx] = rank
-
-    # Combined score: 60% price, 40% duration
-    scores = [0.6 * price_rank[i] + 0.4 * duration_rank[i] for i in range(n)]
-
-    # Sort by score (lowest = best value)
-    ranked = sorted(zip(scores, valid), key=lambda x: x[0])
-    return [f for _, f in ranked] + zero_price
+    return total_flight_minutes + layover_minutes
 
 
 # ── Alternate airport mapping for retry ────────────────────────
@@ -1117,6 +651,491 @@ def search_flights_roundtrip(
     return []
 
 
+# ── Core search using fli (ONE-WAY) ───────────────────────────
+
+def _search_fli(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    cabin_class: str,
+    passengers: int,
+    max_results: int,
+    exclude_airports: list[str] | None,
+    sort_by: str = "best",
+) -> list[dict]:
+    """
+    Search ONE-WAY flights using the flights (fli) package — direct Google Flights API.
+    Returns results in the same format as the rest of ExpediRamp expects.
+
+    IMPORTANT: The fli package returns the TOTAL price for all passengers
+    (since we pass PassengerInfo(adults=passengers)). We must NOT multiply
+    by passengers again. price_per_person = total_price / passengers.
+    """
+    from fli.models import (
+        Airport, PassengerInfo, SeatType, MaxStops, SortBy,
+        FlightSearchFilters, FlightSegment, TripType,
+    )
+    from fli.search import SearchFlights
+
+    # Map cabin class string → SeatType enum
+    seat_map = {
+        "economy": SeatType.ECONOMY,
+        "premium_economy": SeatType.PREMIUM_ECONOMY,
+        "business": SeatType.BUSINESS,
+        "first": SeatType.FIRST,
+    }
+
+    # Map sort preference → SortBy enum
+    sort_map = {
+        "best": SortBy.TOP_FLIGHTS,
+        "cheapest": SortBy.CHEAPEST,
+        "fastest": SortBy.DURATION,
+    }
+
+    # Resolve Airport enums
+    origin_airport = _get_airport_enum(origin)
+    dest_airport = _get_airport_enum(destination)
+
+    if origin_airport is None or dest_airport is None:
+        logger.warning(
+            "Airport code not found in fli Airport enum: origin=%s (%s), dest=%s (%s)",
+            origin, "found" if origin_airport else "MISSING",
+            destination, "found" if dest_airport else "MISSING",
+        )
+        return []
+
+    # Build search filters — ONE-WAY with 1 adult
+    # We always search for 1 passenger and multiply later to avoid
+    # the fli package's inconsistent multi-passenger pricing
+    filters = FlightSearchFilters(
+        trip_type=TripType.ONE_WAY,
+        passenger_info=PassengerInfo(adults=1),
+        flight_segments=[
+            FlightSegment(
+                departure_airport=[[origin_airport, 0]],
+                arrival_airport=[[dest_airport, 0]],
+                travel_date=departure_date,
+            )
+        ],
+        seat_type=seat_map.get(cabin_class, SeatType.ECONOMY),
+        stops=MaxStops.ANY,
+        sort_by=sort_map.get(sort_by, SortBy.TOP_FLIGHTS),
+    )
+
+    # Execute search
+    search = SearchFlights()
+    flight_results = search.search(filters)
+
+    if not flight_results:
+        logger.warning("fli returned no results for %s → %s on %s", origin, destination, departure_date)
+        return []
+
+    logger.info("fli returned %d results for %s → %s", len(flight_results), origin, destination)
+
+    exclude = set(a.upper() for a in (exclude_airports or []))
+    results = []
+
+    for i, flight in enumerate(flight_results):
+        # flight is a FlightResult with: price, duration, stops, legs, currency
+
+        # Extract airline code from the first leg
+        first_leg = flight.legs[0] if flight.legs else None
+        if not first_leg:
+            continue
+
+        # The airline attribute is an Airline enum — .name gives the IATA code
+        airline_code = first_leg.airline.name if first_leg.airline else ""
+        airline_name = first_leg.airline.value if first_leg.airline else "Unknown Airline"
+
+        # If airline_name is just the code (some enums use code as value), make it readable
+        if airline_name == airline_code:
+            airline_name = airline_code  # We'll just use the code
+
+        # Check if any leg involves an excluded airport
+        skip = False
+        for leg in flight.legs:
+            dep_code = leg.departure_airport.name if leg.departure_airport else ""
+            arr_code = leg.arrival_airport.name if leg.arrival_airport else ""
+            if dep_code in exclude or arr_code in exclude:
+                skip = True
+                break
+        if skip:
+            continue
+
+        # PRICE FIX: fli returns price PER PERSON for 1-adult search.
+        # We searched with adults=1, so flight.price = per-person price.
+        # total_price = per_person * passengers (the user's actual count).
+        price_per_person = float(flight.price) if flight.price else 0
+        total_price = price_per_person * passengers
+
+        # Build segments list from legs
+        segments = []
+        for leg in flight.legs:
+            dep_code = leg.departure_airport.name if leg.departure_airport else origin
+            arr_code = leg.arrival_airport.name if leg.arrival_airport else destination
+            dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
+            arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
+            dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
+
+            # Extract flight number
+            flight_num = ""
+            if hasattr(leg, 'flight_number') and leg.flight_number:
+                flight_num = leg.flight_number
+            elif airline_code:
+                flight_num = f"{airline_code} {i + 1}"
+
+            segments.append({
+                "origin": dep_code,
+                "destination": arr_code,
+                "departure_time": dep_time,
+                "arrival_time": arr_time,
+                "flight_number": flight_num,
+                "duration_minutes": dur,
+                "aircraft": getattr(leg, 'aircraft', '') or "",
+            })
+
+        # Build layovers list (same-airport subtraction — timezone safe)
+        is_nonstop = len(segments) <= 1
+        layovers = _build_layovers(segments)
+
+        # Total duration: use fli's own value if available (most accurate),
+        # fall back to our computed sum of flight + layover times.
+        fli_duration = flight.duration if flight.duration else 0
+        total_duration = fli_duration if fli_duration > 0 else _compute_leg_duration(segments)
+
+        # Build booking links to reliable aggregators (one-way)
+        booking_links = _build_booking_links(
+            origin, destination, departure_date, cabin_class, passengers
+        )
+        # Primary booking_url = Google Flights (proven protobuf encoding)
+        booking_url = booking_links["google_flights"]
+
+        results.append({
+            "id": f"fli_{origin}_{destination}_{i}",
+            "airline": {
+                "code": airline_code,
+                "name": airline_name,
+                "logo": _airline_logo(airline_code) if airline_code else "",
+            },
+            "segments": segments,
+            "layovers": layovers,
+            "is_nonstop": is_nonstop,
+            "is_round_trip": False,
+            "trip_type": "one_way",
+            "total_duration_minutes": total_duration,
+            "cabin_class": cabin_class,
+            "price_per_person": round(price_per_person, 2),
+            "total_price": round(total_price, 2),
+            "passengers": passengers,
+            "departure_date": departure_date,
+            "booking_url": booking_url,
+            "booking_links": booking_links,
+            "currency_code": _DETECTED_CURRENCY,
+            "currency_symbol": _DETECTED_SYMBOL,
+        })
+
+    # ── Smart ranking (for "best" mode) ─────────────────────────
+    if sort_by != "cheapest" and len(results) > 1:
+        results = _rank_by_value(results)
+    else:
+        # Pure price sort for "cheapest" mode
+        results.sort(key=lambda x: (x["total_price"] == 0, x["total_price"]))
+
+    logger.info("Returning %d flights (from %d raw, sort=%s)", len(results[:max_results]), len(flight_results), sort_by)
+    return results[:max_results]
+
+
+# ── Core search using fli (ROUND-TRIP) ─────────────────────────
+
+def _search_fli_roundtrip(
+    origin: str,
+    destination: str,
+    departure_date: str,
+    return_date: str,
+    cabin_class: str,
+    passengers: int,
+    max_results: int,
+    exclude_airports: list[str] | None,
+    sort_by: str = "best",
+) -> list[dict]:
+    """
+    Search ROUND-TRIP flights using the flights (fli) package.
+    Returns results with both outbound and return segments grouped together.
+
+    The fli package's TripType.ROUND_TRIP returns flights that include
+    both outbound and return legs. The price is the total round-trip
+    price for all passengers.
+
+    We search with adults=1 to get per-person pricing, then multiply.
+    """
+    from fli.models import (
+        Airport, PassengerInfo, SeatType, MaxStops, SortBy,
+        FlightSearchFilters, FlightSegment, TripType,
+    )
+    from fli.search import SearchFlights
+
+    seat_map = {
+        "economy": SeatType.ECONOMY,
+        "premium_economy": SeatType.PREMIUM_ECONOMY,
+        "business": SeatType.BUSINESS,
+        "first": SeatType.FIRST,
+    }
+    sort_map = {
+        "best": SortBy.TOP_FLIGHTS,
+        "cheapest": SortBy.CHEAPEST,
+        "fastest": SortBy.DURATION,
+    }
+
+    origin_airport = _get_airport_enum(origin)
+    dest_airport = _get_airport_enum(destination)
+
+    if origin_airport is None or dest_airport is None:
+        logger.warning(
+            "Airport code not found for round-trip: origin=%s (%s), dest=%s (%s)",
+            origin, "found" if origin_airport else "MISSING",
+            destination, "found" if dest_airport else "MISSING",
+        )
+        return []
+
+    # Build round-trip search with 1 adult for per-person pricing
+    filters = FlightSearchFilters(
+        trip_type=TripType.ROUND_TRIP,
+        passenger_info=PassengerInfo(adults=1),
+        flight_segments=[
+            FlightSegment(
+                departure_airport=[[origin_airport, 0]],
+                arrival_airport=[[dest_airport, 0]],
+                travel_date=departure_date,
+            ),
+            FlightSegment(
+                departure_airport=[[dest_airport, 0]],
+                arrival_airport=[[origin_airport, 0]],
+                travel_date=return_date,
+            ),
+        ],
+        seat_type=seat_map.get(cabin_class, SeatType.ECONOMY),
+        stops=MaxStops.ANY,
+        sort_by=sort_map.get(sort_by, SortBy.TOP_FLIGHTS),
+    )
+
+    search = SearchFlights()
+    flight_results = search.search(filters)
+
+    if not flight_results:
+        logger.warning("fli round-trip returned no results for %s ↔ %s on %s / %s",
+                       origin, destination, departure_date, return_date)
+        return []
+
+    logger.info("fli round-trip returned %d results for %s ↔ %s", len(flight_results), origin, destination)
+
+    exclude = set(a.upper() for a in (exclude_airports or []))
+    results = []
+
+    for i, result_item in enumerate(flight_results):
+        # CRITICAL: fli returns list[tuple(FlightResult, FlightResult)] for round trips.
+        # Each item is (outbound_flight, return_flight).
+        if isinstance(result_item, tuple) and len(result_item) == 2:
+            outbound_flight, return_flight = result_item
+        else:
+            # Fallback if fli changes format — treat as single flight
+            logger.warning("Unexpected round-trip result format at index %d: %s", i, type(result_item))
+            continue
+
+        # Extract airline from outbound first leg
+        out_first_leg = outbound_flight.legs[0] if outbound_flight.legs else None
+        if not out_first_leg:
+            continue
+
+        airline_code = out_first_leg.airline.name if out_first_leg.airline else ""
+        airline_name = out_first_leg.airline.value if out_first_leg.airline else "Unknown Airline"
+        if airline_name == airline_code:
+            airline_name = airline_code
+
+        # Check excluded airports across both directions
+        skip = False
+        all_legs = list(outbound_flight.legs or []) + list(return_flight.legs or [])
+        for leg in all_legs:
+            dep_code = leg.departure_airport.name if leg.departure_airport else ""
+            arr_code = leg.arrival_airport.name if leg.arrival_airport else ""
+            if dep_code in exclude or arr_code in exclude:
+                skip = True
+                break
+        if skip:
+            continue
+
+        # PRICE: outbound.price is the total round-trip price per person
+        price_per_person = float(outbound_flight.price) if outbound_flight.price else 0
+        total_price = price_per_person * passengers
+
+        # Helper to extract segments from a FlightResult's legs
+        def _extract_segments(flight_obj, fallback_origin, fallback_dest):
+            segs = []
+            for leg in (flight_obj.legs or []):
+                dep_code = leg.departure_airport.name if leg.departure_airport else fallback_origin
+                arr_code = leg.arrival_airport.name if leg.arrival_airport else fallback_dest
+                dep_time = leg.departure_datetime.strftime("%Y-%m-%d %H:%M") if leg.departure_datetime else ""
+                arr_time = leg.arrival_datetime.strftime("%Y-%m-%d %H:%M") if leg.arrival_datetime else ""
+                dur = leg.duration if hasattr(leg, 'duration') and leg.duration else 0
+
+                flight_num = ""
+                if hasattr(leg, 'flight_number') and leg.flight_number:
+                    acode = leg.airline.name if leg.airline else airline_code
+                    flight_num = f"{acode} {leg.flight_number}"
+                elif airline_code:
+                    flight_num = f"{airline_code} {len(segs) + 1}"
+
+                segs.append({
+                    "origin": dep_code,
+                    "destination": arr_code,
+                    "departure_time": dep_time,
+                    "arrival_time": arr_time,
+                    "flight_number": flight_num,
+                    "duration_minutes": dur,
+                    "aircraft": getattr(leg, 'aircraft', '') or "",
+                })
+            return segs
+
+        outbound_segments = _extract_segments(outbound_flight, origin, destination)
+        return_segments = _extract_segments(return_flight, destination, origin)
+
+        # Build layovers for outbound and return (same-airport subtraction — TZ safe)
+        outbound_layovers = _build_layovers(outbound_segments)
+        return_layovers = _build_layovers(return_segments)
+
+        # Combine all segments and layovers for the full trip view
+        all_segments = outbound_segments + return_segments
+        all_layovers = outbound_layovers + return_layovers
+
+        outbound_nonstop = len(outbound_segments) <= 1
+        return_nonstop = len(return_segments) <= 1
+
+        # Compute outbound and return durations.
+        # Prefer fli's own .duration field (most accurate); fall back to our sum.
+        out_fli_dur = outbound_flight.duration if outbound_flight.duration else 0
+        ret_fli_dur = return_flight.duration if return_flight.duration else 0
+        outbound_duration = out_fli_dur if out_fli_dur > 0 else _compute_leg_duration(outbound_segments)
+        return_duration = ret_fli_dur if ret_fli_dur > 0 else _compute_leg_duration(return_segments)
+        total_duration = outbound_duration + return_duration
+
+        # Build round-trip booking links
+        booking_links = _build_booking_links(
+            origin, destination, departure_date, cabin_class, passengers,
+            return_date=return_date,
+        )
+        booking_url = booking_links["google_flights"]
+
+        results.append({
+            "id": f"fli_rt_{origin}_{destination}_{i}",
+            "airline": {
+                "code": airline_code,
+                "name": airline_name,
+                "logo": _airline_logo(airline_code) if airline_code else "",
+            },
+            # Full trip data
+            "segments": all_segments,
+            "layovers": all_layovers,
+            "is_nonstop": outbound_nonstop and return_nonstop,
+            "is_round_trip": True,
+            "trip_type": "round_trip",
+            "total_duration_minutes": total_duration,
+            # Outbound details
+            "outbound_segments": outbound_segments,
+            "outbound_layovers": outbound_layovers,
+            "outbound_nonstop": outbound_nonstop,
+            "outbound_duration_minutes": outbound_duration,
+            # Return details
+            "return_segments": return_segments,
+            "return_layovers": return_layovers,
+            "return_nonstop": return_nonstop,
+            "return_duration_minutes": return_duration,
+            # Pricing & metadata
+            "cabin_class": cabin_class,
+            "price_per_person": round(price_per_person, 2),
+            "total_price": round(total_price, 2),
+            "passengers": passengers,
+            "departure_date": departure_date,
+            "return_date": return_date,
+            "booking_url": booking_url,
+            "booking_links": booking_links,
+            "currency_code": _DETECTED_CURRENCY,
+            "currency_symbol": _DETECTED_SYMBOL,
+        })
+
+    # Smart ranking
+    if sort_by != "cheapest" and len(results) > 1:
+        results = _rank_by_value(results)
+    else:
+        results.sort(key=lambda x: (x["total_price"] == 0, x["total_price"]))
+
+    logger.info("Returning %d round-trip flights (from %d raw, sort=%s)",
+                len(results[:max_results]), len(flight_results), sort_by)
+    return results[:max_results]
+
+
+def _rank_by_value(flights: list[dict]) -> list[dict]:
+    """
+    Rank flights by a combined value score that balances price and duration.
+    Filters out extreme-duration outliers first, then scores the rest.
+
+    Logic:
+    1. Find the shortest flight duration among all results.
+    2. Remove flights whose duration exceeds 1.8x the shortest (outliers).
+       - But never remove ALL flights — keep at least the shortest.
+    3. Score remaining flights: 60% price rank + 40% duration rank.
+       Lowest score = best value.
+    """
+    # Separate zero-price (bad data) from valid flights
+    valid = [f for f in flights if f["total_price"] > 0]
+    zero_price = [f for f in flights if f["total_price"] == 0]
+
+    if not valid:
+        return flights  # nothing to rank
+
+    # Step 1: find shortest duration (ignoring 0-duration which means unknown)
+    durations = [f["total_duration_minutes"] for f in valid if f["total_duration_minutes"] > 0]
+    if durations:
+        shortest = min(durations)
+        # Step 2: filter outliers — anything over 1.8x the shortest is unreasonable
+        max_reasonable = shortest * 1.8
+
+        reasonable = [f for f in valid
+                      if f["total_duration_minutes"] == 0  # unknown duration — keep it
+                      or f["total_duration_minutes"] <= max_reasonable]
+
+        # Safety net: if filtering removed everything, keep the top 3 shortest
+        if not reasonable:
+            reasonable = sorted(valid, key=lambda x: x["total_duration_minutes"])[:3]
+
+        valid = reasonable
+
+    # Step 3: score by combined price + duration rank
+    n = len(valid)
+    if n == 1:
+        return valid + zero_price
+
+    # Rank by price (lower = better)
+    by_price = sorted(range(n), key=lambda i: valid[i]["total_price"])
+    price_rank = [0] * n
+    for rank, idx in enumerate(by_price):
+        price_rank[idx] = rank
+
+    # Rank by duration (lower = better), treat 0 as worst
+    by_duration = sorted(range(n), key=lambda i: (
+        valid[i]["total_duration_minutes"] == 0,  # unknown last
+        valid[i]["total_duration_minutes"]
+    ))
+    duration_rank = [0] * n
+    for rank, idx in enumerate(by_duration):
+        duration_rank[idx] = rank
+
+    # Combined score: 60% price, 40% duration
+    scores = [0.6 * price_rank[i] + 0.4 * duration_rank[i] for i in range(n)]
+
+    # Sort by score (lowest = best value)
+    ranked = sorted(zip(scores, valid), key=lambda x: x[0])
+    return [f for _, f in ranked] + zero_price
+
+
 # ── Quick self-test ──────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -1139,6 +1158,31 @@ if __name__ == "__main__":
     rt_links = _build_booking_links("YYZ", "NRT", "2026-06-15", return_date="2026-06-22")
     assert "google.com/travel/flights" in rt_links["google_flights"]
     print("✓ Round-trip booking links generated correctly")
+
+    # Test _compute_leg_duration with a cross-timezone example
+    # YYZ → NRT: departs 10:00 Toronto local, arrives 14:00 Tokyo local (next day)
+    # This is NOT 4h — it's roughly 14h flight. duration_minutes must be used.
+    test_segs = [
+        {"origin": "YYZ", "destination": "NRT",
+         "departure_time": "2026-06-15 10:00", "arrival_time": "2026-06-16 14:00",
+         "duration_minutes": 830},  # ~13h50m actual flight time
+    ]
+    dur = _compute_leg_duration(test_segs)
+    assert dur == 830, f"Expected 830, got {dur}"
+    print("✓ _compute_leg_duration correctly uses per-segment duration_minutes (not wall-clock diff)")
+
+    # Test layover calculation (same airport — safe to subtract)
+    layover_segs = [
+        {"origin": "YYZ", "destination": "ORD",
+         "departure_time": "2026-06-15 08:00", "arrival_time": "2026-06-15 09:30",
+         "duration_minutes": 90},
+        {"origin": "ORD", "destination": "NRT",
+         "departure_time": "2026-06-15 12:00", "arrival_time": "2026-06-16 16:00",
+         "duration_minutes": 780},
+    ]
+    layovers = _build_layovers(layover_segs)
+    assert layovers[0]["duration_minutes"] == 150, f"Expected 150m layover, got {layovers[0]['duration_minutes']}"
+    print("✓ _build_layovers correctly computes same-airport layover duration")
 
     # Show example Google Flights URLs
     examples = [

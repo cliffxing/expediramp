@@ -17,27 +17,51 @@ function formatCurrency(amount, item = {}) {
 function formatDate(dateStr) {
   if (!dateStr) return '—';
   try {
+    // Append T00:00:00 for date-only strings so they parse as local midnight, not UTC midnight
     const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
     return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
   } catch { return dateStr; }
 }
 
+// FIX: Parse "YYYY-MM-DD" without Date() to avoid UTC-shift on date-only strings.
 function formatShortDate(dateStr) {
   if (!dateStr) return '';
   try {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const match = dateStr.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      const month = months[parseInt(match[2], 10) - 1];
+      const day = parseInt(match[3], 10);
+      return `${month} ${day}`;
+    }
+    return dateStr;
   } catch { return ''; }
 }
 
+// FIX: Parse "YYYY-MM-DD HH:MM" with a regex instead of passing through new Date(),
+// which would re-interpret the local airport time in the browser's own timezone.
 function formatTime(dateTimeStr) {
   if (!dateTimeStr) return '—';
   try {
-    const d = new Date(dateTimeStr);
-    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+    // Handles "YYYY-MM-DD HH:MM" and "YYYY-MM-DDTHH:MM" formats
+    const match = dateTimeStr.match(/(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})/);
+    if (match) {
+      let hours = parseInt(match[2], 10);
+      const minutes = match[3];
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      hours = hours % 12 || 12;
+      return `${hours}:${minutes} ${ampm}`;
+    }
+    // Fallback for bare "HH:MM" strings
+    if (/^\d{2}:\d{2}$/.test(dateTimeStr)) {
+      let [h, m] = dateTimeStr.split(':').map(Number);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12 || 12;
+      return `${h}:${String(m).padStart(2, '0')} ${ampm}`;
+    }
+    return dateTimeStr;
   } catch {
-    const parts = dateTimeStr.split('T');
-    return parts[1] ? parts[1].slice(0, 5) : parts[1];
+    return dateTimeStr;
   }
 }
 
@@ -118,7 +142,9 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
         </div>
         {/* Duration label */}
         <p className="text-[10px] text-ramp-text-tertiary">
-          {isNonstop ? `Nonstop · ${formatDuration(durationMinutes)}` : `${layovers?.length || 0} stop${(layovers?.length || 0) !== 1 ? 's' : ''} · ${formatDuration(durationMinutes)}`}
+          {isNonstop
+            ? `Nonstop · ${formatDuration(durationMinutes)}`
+            : `${layovers?.length || 0} stop${(layovers?.length || 0) !== 1 ? 's' : ''} · ${formatDuration(durationMinutes)}`}
         </p>
       </div>
 
@@ -542,27 +568,24 @@ export default function ItineraryTimeline({ itinerary }) {
                   {hotelCount} hotel{hotelCount !== 1 ? 's' : ''}
                 </span>
               )}
-              <span className="text-[10px] px-2 py-0.5 border border-ramp-border text-ramp-text-secondary bg-ramp-surface-alt">
-                {items.length} items total
-              </span>
             </div>
           </div>
-
-          {/* Total cost */}
-          <div className="flex-shrink-0 text-right border border-ramp-border bg-ramp-surface-alt px-4 py-3">
-            <p className="text-[10px] text-ramp-text-tertiary font-medium uppercase tracking-widest">Total</p>
-            <p className="text-2xl font-bold text-ramp-text mt-0.5">
-              {itineraryCurrency.mixed ? 'See breakdown' : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode })}
+          <div className="text-right flex-shrink-0">
+            <p className="text-2xl font-bold text-ramp-text">
+              {itineraryCurrency.mixed
+                ? 'See breakdown'
+                : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode, currency_symbol: items[0]?.currency_symbol })}
             </p>
+            <p className="text-xs text-ramp-text-tertiary mt-0.5">estimated total</p>
           </div>
         </div>
       </div>
 
-      {/* ── Timeline items ── */}
+      {/* ── Timeline Items ── */}
       <div>
         {items.map((item, idx) => (
           <TimelineItem
-            key={idx}
+            key={item.id || idx}
             item={item}
             index={idx}
             isLast={idx === items.length - 1}
@@ -570,16 +593,6 @@ export default function ItineraryTimeline({ itinerary }) {
             mixedCurrencies={itineraryCurrency.mixed}
           />
         ))}
-      </div>
-
-      {/* ── Grand total footer ── */}
-      <div className="mt-2 border border-ramp-border bg-ramp-surface shadow-ramp">
-        <div className="px-6 py-4 flex items-center justify-between">
-          <p className="text-sm font-medium text-ramp-text-secondary">Total trip cost</p>
-          <p className="text-xl font-bold text-ramp-text">
-            {itineraryCurrency.mixed ? 'Mixed currencies' : formatCurrency(totalCost, { currency_code: itineraryCurrency.currencyCode })}
-          </p>
-        </div>
       </div>
     </div>
   );
