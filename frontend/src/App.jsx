@@ -10,6 +10,51 @@ import AuthModal from './components/Auth/AuthModal';
 import { useAuth } from './context/AuthContext';
 import { sendMessageStream, createConversation, getConversationMessages } from './api/client';
 
+const DAILY_ITINERARY_CONFIRMATION =
+  'Yes, build me a day-by-day itinerary with things to do each day.';
+
+function isDailyItineraryPrompt(content = '') {
+  const normalized = content.toLowerCase();
+  return (
+    normalized.includes('would you like me to build') &&
+    (normalized.includes('day-by-day itinerary') ||
+      normalized.includes('things to do each day'))
+  );
+}
+
+function DayItineraryPrompt({ onConfirm, onDismiss, disabled }) {
+  return (
+    <div className="ml-11 -mt-1">
+      <div className="border border-ramp-border bg-ramp-surface-alt px-4 py-4 shadow-sm animate-slide-up">
+        <p className="text-sm font-semibold text-ramp-text">
+          Build your day-by-day itinerary?
+        </p>
+        <p className="mt-1 text-sm text-ramp-text-secondary">
+          Add a separate activity plan with things to do each day.
+        </p>
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={disabled}
+            className="ramp-btn-primary"
+          >
+            Yes!
+          </button>
+          <button
+            type="button"
+            onClick={onDismiss}
+            disabled={disabled}
+            className="px-3 py-2 text-sm font-medium text-ramp-text-secondary border border-ramp-border bg-ramp-surface hover:bg-ramp-bg transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { token, user } = useAuth();
   const [messages, setMessages] = useState([]);
@@ -20,6 +65,7 @@ export default function App() {
   const [pendingItinerary, setPendingItinerary] = useState(null);
   const [conversationId, setConversationId] = useState(null);
   const [loadingConvo, setLoadingConvo] = useState(false);
+  const [dismissedPromptKey, setDismissedPromptKey] = useState(null);
   const scrollRef = useRef(null);
 
   // Track the previous user so we can detect logout
@@ -76,6 +122,7 @@ export default function App() {
     setStreamingText('');
     setActiveTools([]);
     setConversationId(null);
+    setDismissedPromptKey(null);
   };
 
   const handleSelectConversation = async (convo) => {
@@ -83,6 +130,7 @@ export default function App() {
     setConversationId(convo.id);
     setPendingItinerary(null);
     setMessages([]);
+    setDismissedPromptKey(null);
     try {
       const data = await getConversationMessages(token, convo.id);
       const loaded = (data.messages || []).map((m) => ({
@@ -105,6 +153,7 @@ export default function App() {
     setStreamingText('');
     setActiveTools([]);
     setPendingItinerary(null);
+    setDismissedPromptKey(null);
 
     // Create conversation on first message if signed in
     let activeConvoId = conversationId;
@@ -246,6 +295,16 @@ export default function App() {
                   {messages.map((msg, idx) => (
                     <React.Fragment key={idx}>
                       <ChatMessage role={msg.role} content={msg.content} />
+                      {msg.role === 'assistant' &&
+                        idx === messages.length - 1 &&
+                        dismissedPromptKey !== `${idx}:${msg.content}` &&
+                        isDailyItineraryPrompt(msg.content) && (
+                          <DayItineraryPrompt
+                            disabled={isLoading}
+                            onConfirm={() => handleSend(DAILY_ITINERARY_CONFIRMATION)}
+                            onDismiss={() => setDismissedPromptKey(`${idx}:${msg.content}`)}
+                          />
+                        )}
                       {msg.itinerary && (
                         <div className="mt-4 mb-2">
                           <ItineraryTimeline itinerary={msg.itinerary} />
