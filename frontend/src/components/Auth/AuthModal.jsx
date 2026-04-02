@@ -30,27 +30,20 @@ export default function AuthModal({ onClose }) {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      {/* Backdrop */}
       <div className="absolute inset-0 bg-ramp-text/20 backdrop-blur-sm" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative bg-ramp-surface rounded-ramp-lg shadow-ramp-lg w-full max-w-sm mx-4 animate-slide-up">
-        {/* Close */}
+      {/* Modal — sharp corners */}
+      <div className="relative bg-ramp-surface shadow-ramp-lg w-full max-w-sm mx-4 animate-slide-up border border-ramp-border">
         <button
           onClick={onClose}
-          className="absolute right-4 top-4 w-7 h-7 rounded-ramp-sm flex items-center justify-center
+          className="absolute right-4 top-4 w-7 h-7 flex items-center justify-center
                      hover:bg-ramp-surface-alt transition-colors"
         >
-          <X size={16} className="text-ramp-text-secondary" />
+          <X size={15} className="text-ramp-text-secondary" />
         </button>
 
         <div className="px-7 pt-7 pb-2">
-          <div className="w-10 h-10 bg-ramp-accent rounded-ramp flex items-center justify-center mb-4">
-            <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-              <path d="M4 22V6h12l-4 5H8v11H4z" fill="#FAFAF8"/>
-              <path d="M14 6l12 8-12 8V6z" fill="#1B7A4A"/>
-            </svg>
-          </div>
+          <img src="/favicon.svg" alt="ExpediRamp" className="w-8 h-8 mb-4" />
           <h2 className="text-lg font-bold text-ramp-text">
             {mode === 'login' ? 'Welcome back' : 'Create an account'}
           </h2>
@@ -63,7 +56,7 @@ export default function AuthModal({ onClose }) {
 
         <form onSubmit={handleSubmit} className="px-7 pb-7 pt-4 space-y-4">
           {error && (
-            <div className="flex items-start gap-2 p-3 rounded-ramp-sm bg-ramp-red-light text-ramp-red text-xs">
+            <div className="flex items-start gap-2 p-3 bg-ramp-red-light text-ramp-red text-xs">
               <AlertCircle size={14} className="flex-shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
@@ -103,7 +96,10 @@ export default function AuthModal({ onClose }) {
           <button
             type="submit"
             disabled={loading}
-            className="ramp-btn-primary w-full gap-2"
+            className="w-full flex items-center justify-center gap-2 px-4 py-2.5
+                       bg-ramp-yellow text-ramp-text text-sm font-semibold
+                       hover:bg-ramp-yellow-hover transition-colors
+                       disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading && <Loader2 size={14} className="animate-spin" />}
             {mode === 'login' ? 'Sign In' : 'Create Account'}
@@ -114,7 +110,7 @@ export default function AuthModal({ onClose }) {
             <button
               type="button"
               onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setError(''); }}
-              className="text-ramp-text font-medium hover:underline"
+              className="text-ramp-text font-semibold hover:underline"
             >
               {mode === 'login' ? 'Sign up' : 'Sign in'}
             </button>

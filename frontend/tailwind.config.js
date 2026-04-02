@@ -15,6 +15,9 @@ export default {
           'text-tertiary': '#9C9C91',
           accent: '#1A1A18',
           'accent-hover': '#333330',
+          yellow: '#E1F301',
+          'yellow-hover': '#cede00',
+          'yellow-light': '#f9ffd4',
           green: '#1B7A4A',
           'green-light': '#E8F5EE',
           red: '#C4362C',
@@ -26,16 +29,20 @@ export default {
         },
       },
       fontFamily: {
-        sans: ['"Instrument Sans"', '"SF Pro Display"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+        // TWK Lausanne is Ramp's actual font — not publicly available.
+        // 'Inter' is the closest free alternative in weight/optical sizing.
+        sans: ['Inter', '"SF Pro Display"', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
         mono: ['"JetBrains Mono"', '"SF Mono"', 'Menlo', 'monospace'],
       },
       fontSize: {
         '2xs': ['0.6875rem', { lineHeight: '1rem' }],
       },
       borderRadius: {
-        'ramp': '10px',
-        'ramp-sm': '6px',
-        'ramp-lg': '14px',
+        // Sharp corners everywhere — Ramp style
+        'ramp': '2px',
+        'ramp-sm': '2px',
+        'ramp-lg': '2px',
+        'ramp-xl': '2px',
       },
       boxShadow: {
         'ramp': '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)',

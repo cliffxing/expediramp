@@ -28,8 +28,8 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
   };
 
   return (
-    <div className="ramp-card-elevated">
-      <div className="flex items-end gap-3 p-3">
+    <div className="bg-ramp-surface border border-ramp-border shadow-ramp-md focus-within:border-ramp-border-strong transition-colors">
+      <div className="flex items-end gap-2 p-3">
         <textarea
           ref={textareaRef}
           value={value}
@@ -39,27 +39,30 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
           placeholder={placeholder || "Describe your dream trip…"}
           rows={1}
           className="flex-1 resize-none bg-transparent text-sm text-ramp-text
-                     placeholder:text-ramp-text-tertiary outline-none py-1.5
+                     placeholder:text-ramp-text-tertiary outline-none py-1
                      min-h-[36px] max-h-[200px] leading-relaxed"
         />
         <button
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className="flex-shrink-0 w-9 h-9 rounded-ramp-sm flex items-center justify-center
-                     bg-ramp-accent text-white transition-all duration-150
-                     hover:bg-ramp-accent-hover active:scale-95
-                     disabled:opacity-30 disabled:cursor-not-allowed disabled:active:scale-100"
+          className="flex-shrink-0 h-9 px-4 flex items-center justify-center gap-1.5
+                     bg-ramp-yellow text-ramp-text text-xs font-semibold
+                     hover:bg-ramp-yellow-hover transition-colors
+                     disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {disabled ? (
-            <Loader2 size={16} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
-            <Send size={16} />
+            <>
+              <Send size={13} />
+              <span>Send</span>
+            </>
           )}
         </button>
       </div>
       <div className="px-4 pb-2.5">
         <p className="text-2xs text-ramp-text-tertiary">
-          Press Enter to send · Shift + Enter for new line
+          Enter to send · Shift+Enter for new line
         </p>
       </div>
     </div>

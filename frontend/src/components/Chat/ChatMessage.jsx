@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Sparkles } from 'lucide-react';
+import { User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -10,26 +10,29 @@ export default function ChatMessage({ role, content, isStreaming }) {
     <div className={`flex gap-3 animate-slide-up ${isUser ? 'flex-row-reverse' : ''}`}>
       {/* Avatar */}
       <div
-        className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center
-          ${isUser ? 'bg-ramp-surface-alt border border-ramp-border' : 'bg-ramp-accent'}`}
+        className={`flex-shrink-0 w-6 h-6 flex items-center justify-center
+          ${isUser
+            ? 'bg-ramp-surface-alt border border-ramp-border'
+            : 'bg-ramp-yellow'
+          }`}
       >
         {isUser ? (
-          <User size={14} className="text-ramp-text-secondary" />
+          <User size={11} className="text-ramp-text-secondary" />
         ) : (
-          <Sparkles size={14} className="text-white" />
+          <img src="/favicon.svg" alt="ExpediRamp" className="w-4 h-4" />
         )}
       </div>
 
       {/* Bubble */}
       <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
         <p className="text-2xs font-medium text-ramp-text-tertiary mb-1">
-          {isUser ? 'You' : 'Expediramp'}
+          {isUser ? 'You' : 'ExpediRamp'}
         </p>
         <div
-          className={`rounded-ramp px-4 py-3 text-sm leading-relaxed
+          className={`px-4 py-3 text-sm leading-relaxed
             ${isUser
-              ? 'bg-ramp-accent text-white rounded-tr-sm'
-              : 'bg-ramp-surface border border-ramp-border rounded-tl-sm'
+              ? 'bg-ramp-text text-white'
+              : 'bg-ramp-surface border border-ramp-border'
             }`}
         >
           {isUser ? (
