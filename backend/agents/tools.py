@@ -194,6 +194,81 @@ TOOLS = [
                 "required": ["itinerary"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_activities",
+            "description": (
+                "Search for tourist activities, attractions, and things to do in a city. "
+                "Returns a list of activities with name, description, category, estimated cost, "
+                "photo URL, and booking/info link. Use this ONLY when the user has accepted the "
+                "offer to build a day-by-day itinerary. Call once per city in the trip."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string", "description": "City name (e.g. 'Tokyo', 'Paris')"},
+                    "num_activities": {
+                        "type": "integer",
+                        "description": "Number of activities to return. Use the number of days in this city so each day gets a unique activity. Default 5."
+                    }
+                },
+                "required": ["city"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "build_daily_itinerary",
+            "description": (
+                "CRITICAL: Call this function to present the day-by-day activity itinerary. "
+                "This renders a SEPARATE visual timeline showing tourist activities for each day of the trip. "
+                "Only call this AFTER the user has accepted the itinerary offer and you have searched for activities. "
+                "Each item must have type='activity' and include image_url and booking_url."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "itinerary": {
+                        "type": "object",
+                        "properties": {
+                            "trip_title": {"type": "string", "description": "e.g. 'Tokyo Day-by-Day Itinerary'"},
+                            "destinations": {"type": "array", "items": {"type": "string"}},
+                            "start_date": {"type": "string"},
+                            "end_date": {"type": "string"},
+                            "travelers": {"type": "integer"},
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "type": {"type": "string", "enum": ["activity"]},
+                                        "date": {"type": "string", "description": "The date for this activity (YYYY-MM-DD)"},
+                                        "title": {"type": "string", "description": "Activity name from search results"},
+                                        "subtitle": {"type": "string", "description": "Short description or category + city"},
+                                        "cost": {"type": "number", "description": "Estimated cost in USD. 0 for free activities."},
+                                        "image_url": {"type": "string", "description": "Photo URL from search results. NEVER omit this."},
+                                        "booking_url": {"type": "string", "description": "Link to more info or tickets. NEVER omit this."},
+                                        "details": {
+                                            "type": "object",
+                                            "properties": {
+                                                "category": {"type": "string", "description": "e.g. temple, museum, food, landmark, park"},
+                                                "description": {"type": "string", "description": "Full description from search results"},
+                                                "city": {"type": "string"}
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            "total_cost": {"type": "number", "description": "Sum of all activity costs"}
+                        }
+                    }
+                },
+                "required": ["itinerary"]
+            }
+        }
     }
 ]
 
@@ -233,6 +308,38 @@ Do not be lazy. Fill out the entire object perfectly so the UI renders.
 8. **Iterate gracefully.** When the user wants changes (different hotel, avoid an airport, add a city), make the targeted change without rebuilding everything. Search again for just the changed component and call `build_itinerary` again.
 9. **Flight ranking:** By default, use sort_by="best" which returns flights with the best balance of price and travel time (filtering out absurdly long layovers). Only use sort_by="cheapest" when the user explicitly asks for the cheapest flight regardless of how long it takes.
 10. **Always call build_itinerary — never write it out.** If a [CURRENT_ITINERARY] block is present in the conversation, you MUST call build_itinerary when presenting an updated trip. Copy every unchanged item verbatim from the [FULL_ITINERARY_JSON] block — including image_url, booking_url, and the full airline object. Only call search tools for the specific component the user asked to change. Do not re-search things that are already confirmed.
+
+
+## DAY-BY-DAY ITINERARY (ACTIVITIES)
+
+This is a SEPARATE feature from the main trip plan. Follow this flow:
+
+1. **After presenting the trip plan** (flights, hotels, transit via `build_itinerary`), ALWAYS end your response by asking:
+   "Would you like me to build you a day-by-day itinerary with things to do each day?"
+
+2. **ONLY search for activities when the user says yes.** Do NOT search for activities during the initial trip planning phase. Activities are a separate, opt-in step.
+
+3. **When the user accepts**, call `search_activities` for each destination city in the trip. Pass `num_activities` equal to the number of days in that city so every day gets a unique activity.
+
+4. **Assign one activity per day.** Map activities to specific dates in the trip. Spread different categories across days (don't put two museums back-to-back). Consider logical flow — e.g., put outdoor activities earlier in the day, food/nightlife later.
+
+5. **Present via `build_daily_itinerary`** — this renders a separate activity timeline with photos and links. Do NOT mix activities into the main `build_itinerary` call. Do NOT write activities as markdown text.
+
+6. **Activity items MUST include:**
+   - `type`: always "activity"
+   - `title`: the activity name from search results (e.g. "Senso-ji Temple")
+   - `subtitle`: category + short context (e.g. "Temple · Asakusa, Tokyo")
+   - `date`: the specific date (YYYY-MM-DD)
+   - `cost`: estimated cost in USD (0 for free)
+   - `image_url`: photo from search results — NEVER omit
+   - `booking_url`: link to info/tickets — NEVER omit
+   - `details.category`: temple, museum, food, landmark, park, etc.
+   - `details.description`: full description
+   - `details.city`: the city name
+
+7. **Free activities should show cost as 0.** The UI will display "Free" instead of "$0".
+
+
 
 ## CRITICAL: ROUND-TRIP vs ONE-WAY FLIGHT SELECTION
 

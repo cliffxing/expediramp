@@ -11,6 +11,7 @@ from agents.tools import TOOLS, SYSTEM_PROMPT
 from services.flight_service import search_flights, search_flights_roundtrip
 from services.hotel_service import search_hotels
 from services.car_service import search_transit
+from services.activity_service import search_activities
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,10 @@ def _execute_tool(name: str, arguments: dict) -> str:
             result = search_hotels(**arguments)
         elif name == "search_transit":
             result = search_transit(**arguments)
+        elif name == "search_activities":
+            result = search_activities(**arguments)
+        elif name == "build_daily_itinerary":
+            result = arguments.get("itinerary", arguments)
         elif name == "build_itinerary":
             result = arguments.get("itinerary", arguments)
         else:
@@ -77,7 +82,7 @@ def run_agent(conversation_history: list[dict]) -> dict:
             tool_names_called.append(fn_name)
             result_str = _execute_tool(fn_name, fn_args)
 
-            if fn_name == "build_itinerary":
+            if fn_name == "build_itinerary" or fn_name == "build_daily_itinerary":
                 try: itinerary_data = json.loads(result_str)
                 except Exception: itinerary_data = fn_args.get("itinerary", fn_args)
 
@@ -144,7 +149,7 @@ def run_agent_streaming(conversation_history: list[dict]):
 
             result_str = _execute_tool(fn_name, fn_args)
 
-            if fn_name == "build_itinerary":
+            if fn_name == "build_itinerary" or fn_name == "build_daily_itinerary":
                 try: itinerary_data = json.loads(result_str)
                 except Exception: itinerary_data = fn_args.get("itinerary", fn_args)
                 yield {"type": "itinerary", "data": itinerary_data}

@@ -426,25 +426,78 @@ function TransitCard({ item }) {
 
 // ── Activity Card ─────────────────────────────────────────────
 
+// ── Activity Card ─────────────────────────────────────────────
+
 function ActivityCard({ item }) {
+  const d = item.details || {};
+  const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600";
+  const [imgError, setImgError] = useState(false);
+  const imgSrc = !imgError && item.image_url ? item.image_url : fallbackImage;
+
+  const category = d.category || '';
+  const isFree = item.cost === 0 || item.cost === null || item.cost === undefined;
+
   return (
-    <CardWrapper href={item.booking_url}>
-      <div className="px-5 py-4 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 bg-ramp-surface-alt border border-ramp-border flex items-center justify-center flex-shrink-0">
-            <Navigation size={14} className="text-ramp-text-secondary" />
+    <a
+      href={item.booking_url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="group block bg-ramp-surface border border-ramp-border shadow-ramp
+                 hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 overflow-hidden"
+    >
+      <div className="h-0.5 bg-ramp-yellow" />
+      <div className="flex gap-0">
+        {/* Photo thumbnail — same layout as HotelCard */}
+        <div className="w-32 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
+          <img
+            src={imgSrc}
+            alt={item.title}
+            className="w-full h-full object-cover"
+            onError={() => setImgError(true)}
+            style={{ minHeight: '100px' }}
+          />
+        </div>
+        <div className="flex-1 px-4 py-3 min-w-0 space-y-1.5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <TypeLabel type="activity" />
+              <p className="text-sm font-semibold text-ramp-text mt-0.5 leading-snug">{item.title}</p>
+              {item.subtitle && (
+                <p className="text-xs text-ramp-text-secondary mt-0.5">{item.subtitle}</p>
+              )}
+            </div>
+            <div className="text-right flex-shrink-0">
+              {isFree ? (
+                <span className="text-xs font-semibold text-ramp-green">Free</span>
+              ) : (
+                <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
+              )}
+            </div>
           </div>
-          <div>
-            <TypeLabel type="activity" />
-            <p className="text-sm font-semibold text-ramp-text mt-0.5">{item.title}</p>
-            <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>
+          {d.description && d.description !== item.subtitle && (
+            <p className="text-[11px] text-ramp-text-tertiary leading-relaxed line-clamp-2">
+              {d.description}
+            </p>
+          )}
+          <div className="flex items-center gap-2">
+            {category && (
+              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt capitalize">
+                {category}
+              </span>
+            )}
+            {d.city && (
+              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">
+                {d.city}
+              </span>
+            )}
+            <ExternalLink
+              size={10}
+              className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
+            />
           </div>
         </div>
-        {item.cost > 0 && (
-          <p className="text-base font-bold text-ramp-text flex-shrink-0">{formatCurrency(item.cost, item)}</p>
-        )}
       </div>
-    </CardWrapper>
+    </a>
   );
 }
 
