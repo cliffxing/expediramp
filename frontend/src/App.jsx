@@ -17,11 +17,48 @@ export default function App() {
   const [activeTools, setActiveTools] = useState([]);
   const [streamingText, setStreamingText] = useState('');
   const [showAuth, setShowAuth] = useState(false);
-  // Pending itinerary shown during streaming — merged into messages on done
   const [pendingItinerary, setPendingItinerary] = useState(null);
   const [conversationId, setConversationId] = useState(null);
   const [loadingConvo, setLoadingConvo] = useState(false);
   const scrollRef = useRef(null);
+
+  // Track the previous user so we can detect logout
+  const prevUserRef = useRef(user);
+
+  // ── Clear chat on logout ───────────────────────────────────
+  // When user transitions from logged-in → null (logout), reset everything.
+  useEffect(() => {
+    const wasLoggedIn = prevUserRef.current !== null;
+    const isNowLoggedOut = user === null;
+    if (wasLoggedIn && isNowLoggedOut) {
+      setMessages([]);
+      setPendingItinerary(null);
+      setStreamingText('');
+      setActiveTools([]);
+      setConversationId(null);
+      setIsLoading(false);
+    }
+    prevUserRef.current = user;
+  }, [user]);
+
+  // ── Tab visibility: scroll to bottom when tab regains focus ──
+  // The stream continues running in the background (the fetch/ReadableStream
+  // is alive as long as the page isn't unloaded). When the user comes back,
+  // we just need to scroll them to the latest content.
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Small tick to let React flush any state that landed while hidden
+        setTimeout(() => {
+          if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }
+        }, 50);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -83,18 +120,12 @@ export default function App() {
 
     // Find the single most recent itinerary across all messages.
     // IMPORTANT: We only ever inject ONE copy of the full JSON — the latest one.
-    // The previous approach annotated every assistant message that had an itinerary,
-    // so by the 4th reprompt the context contained 4 full JSON blobs. GPT-4o would
-    // hit its effective token budget mid-generation, skip the build_itinerary tool
-    // call, and write out the itinerary as plain text instead.
     const latestItineraryMsg = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant' && m.itinerary);
 
     const history = messages.map((m) => {
       if (m === latestItineraryMsg) {
-        // Annotate only this message with the full structured JSON so the agent
-        // can copy unchanged items verbatim (logos, images, segments, URLs).
         const itin = m.itinerary;
         const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
         const itemSummaries = (itin.items || []).map((item) => {
@@ -113,9 +144,7 @@ export default function App() {
 
         return { role: m.role, content: (m.content || '') + itineraryContext };
       }
-
-      // All other messages — including older itinerary messages — just send their
-      // plain text content. No JSON blobs, no bloat.
+      // All other messages — no JSON blobs, no bloat.
       return { role: m.role, content: m.content };
     });
 
