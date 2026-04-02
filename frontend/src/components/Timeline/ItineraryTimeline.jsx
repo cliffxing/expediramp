@@ -379,7 +379,7 @@ function HotelCard({ item }) {
                 </div>
               )}
               {d.guest_rating && (
-                <span className="text-ramp-text-secondary">{d.guest_rating}/10 guest rating</span>
+                <span className="text-ramp-text-secondary">{d.guest_rating}/5 guest rating</span>
               )}
             </div>
           )}

@@ -81,20 +81,41 @@ export default function App() {
       }
     }
 
-    // Build history — include itinerary context so the agent knows
-    // what was previously presented and can iterate on it.
+    // Find the single most recent itinerary across all messages.
+    // IMPORTANT: We only ever inject ONE copy of the full JSON — the latest one.
+    // The previous approach annotated every assistant message that had an itinerary,
+    // so by the 4th reprompt the context contained 4 full JSON blobs. GPT-4o would
+    // hit its effective token budget mid-generation, skip the build_itinerary tool
+    // call, and write out the itinerary as plain text instead.
+    const latestItineraryMsg = [...messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.itinerary);
+
     const history = messages.map((m) => {
-      if (m.role === 'assistant' && m.itinerary) {
+      if (m === latestItineraryMsg) {
+        // Annotate only this message with the full structured JSON so the agent
+        // can copy unchanged items verbatim (logos, images, segments, URLs).
         const itin = m.itinerary;
+        const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
         const itemSummaries = (itin.items || []).map((item) => {
           if (item.type === 'flight') return `Flight: ${item.title} — $${item.cost}`;
           if (item.type === 'hotel') return `Hotel: ${item.title} — $${item.cost}`;
           return `${item.type}: ${item.title} — $${item.cost}`;
         });
-        const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
-        const itineraryContext = `\n\n[ITINERARY PRESENTED: ${itin.trip_title || 'Trip'} | ${itin.start_date} to ${itin.end_date} | ${itin.travelers || 1} traveler(s) | Items: ${itemSummaries.join('; ')} | Total: $${totalCost}]`;
+
+        const itineraryContext =
+          `\n\n[CURRENT_ITINERARY: ${itin.trip_title || 'Trip'} | ` +
+          `${itin.start_date} to ${itin.end_date} | ` +
+          `${itin.travelers || 1} traveler(s) | ` +
+          `Items: ${itemSummaries.join('; ')} | ` +
+          `Total: $${totalCost}]\n` +
+          `[FULL_ITINERARY_JSON: ${JSON.stringify(itin)}]`;
+
         return { role: m.role, content: (m.content || '') + itineraryContext };
       }
+
+      // All other messages — including older itinerary messages — just send their
+      // plain text content. No JSON blobs, no bloat.
       return { role: m.role, content: m.content };
     });
 
@@ -119,7 +140,6 @@ export default function App() {
           setActiveTools([]);
         },
         onDone: () => {
-          // Always add an assistant message — attach itinerary if one was received
           const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
           if (receivedItinerary) {
             assistantMsg.itinerary = receivedItinerary;
@@ -210,13 +230,13 @@ export default function App() {
                     <ChatMessage role="assistant" content={streamingText} isStreaming={isLoading} />
                   )}
 
-                    {/* Tool activity — shown whenever loading OR tools are active */}
-                    {isLoading && (
-                      <div className="flex gap-3">
-                        <div className="flex-shrink-0 w-8" />
-                        <ToolStatus tools={activeTools} isLoading={isLoading} />
-                      </div>
-                    )}
+                  {/* Tool activity — shown whenever loading OR tools are active */}
+                  {isLoading && (
+                    <div className="flex gap-3">
+                      <div className="flex-shrink-0 w-8" />
+                      <ToolStatus tools={activeTools} isLoading={isLoading} />
+                    </div>
+                  )}
 
                   {/* Pending itinerary (during streaming, before finalized) */}
                   {pendingItinerary && (
