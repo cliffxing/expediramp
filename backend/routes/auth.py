@@ -7,13 +7,18 @@ from services.firebase_client import verify_token
 auth_bp = Blueprint("auth", __name__)
 
 
-@auth_bp.route("/api/auth/logout", methods=["POST"])
+@auth_bp.route("/api/auth/logout", methods=["POST", "OPTIONS"])
 def logout():
+    if request.method == "OPTIONS":
+        return ("", 204)
     return jsonify({"ok": True})
 
 
-@auth_bp.route("/api/auth/me", methods=["GET"])
+@auth_bp.route("/api/auth/me", methods=["GET", "OPTIONS"])
 def me():
+    if request.method == "OPTIONS":
+        return ("", 204)
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return jsonify({"error": "No token"}), 401

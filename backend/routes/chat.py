@@ -151,8 +151,10 @@ def chat_stream():
     )
 
 
-@chat_bp.route("/api/conversations", methods=["GET"])
+@chat_bp.route("/api/conversations", methods=["GET", "OPTIONS"])
 def list_conversations():
+    if request.method == "OPTIONS":
+        return ("", 204)
     user = _get_user_optional()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
@@ -160,8 +162,10 @@ def list_conversations():
     return jsonify({"conversations": convos})
 
 
-@chat_bp.route("/api/conversations", methods=["POST"])
+@chat_bp.route("/api/conversations", methods=["POST", "OPTIONS"])
 def new_conversation():
+    if request.method == "OPTIONS":
+        return ("", 204)
     user = _get_user_optional()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
@@ -171,8 +175,10 @@ def new_conversation():
     return jsonify(convo), 201
 
 
-@chat_bp.route("/api/conversations/<conversation_id>/messages", methods=["GET"])
+@chat_bp.route("/api/conversations/<conversation_id>/messages", methods=["GET", "OPTIONS"])
 def conversation_messages(conversation_id):
+    if request.method == "OPTIONS":
+        return ("", 204)
     user = _get_user_optional()
     if not user:
         return jsonify({"error": "Authentication required"}), 401
