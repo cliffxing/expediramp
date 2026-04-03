@@ -485,6 +485,8 @@ export function downloadItineraryPdf(itinerary, assistantContent = '') {
     }, 500);
   };
 
+  let hasPrinted = false;
+
   const printFrame = iframe.contentWindow;
   if (!printFrame) {
     cleanup();
@@ -498,6 +500,8 @@ export function downloadItineraryPdf(itinerary, assistantContent = '') {
   frameDocument.title = `${itinerary?.trip_title || 'Trip plan'} PDF`;
 
   const triggerPrint = () => {
+    if (hasPrinted) return;
+    hasPrinted = true;
     printFrame.focus();
     printFrame.print();
   };
