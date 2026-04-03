@@ -90,6 +90,8 @@ export default function App() {
   const scrollRef = useRef(null);
   const currentStreamControllerRef = useRef(null);
   const requestInFlightRef = useRef(false);
+  const notifyOnFinishRef = useRef(false);
+  const notificationPermissionRef = useRef(notificationPermission);
 
   const prevUserRef = useRef(user);
 
@@ -111,6 +113,14 @@ export default function App() {
   }, [clearLoadingState]);
 
   useEffect(() => {
+    notifyOnFinishRef.current = notifyOnFinish;
+  }, [notifyOnFinish]);
+
+  useEffect(() => {
+    notificationPermissionRef.current = notificationPermission;
+  }, [notificationPermission]);
+
+  useEffect(() => {
     const prev = prevUserRef.current;
     prevUserRef.current = user;
     if (prev && !user) {
@@ -126,10 +136,10 @@ export default function App() {
 
   const notifyRequestFinished = useCallback((title, body) => {
     if (
-      !notifyOnFinish ||
+      !notifyOnFinishRef.current ||
       typeof window === 'undefined' ||
       !('Notification' in window) ||
-      Notification.permission !== 'granted'
+      notificationPermissionRef.current !== 'granted'
     ) {
       return;
     }
@@ -147,7 +157,7 @@ export default function App() {
     } catch (error) {
       console.error('Failed to show completion notification:', error);
     }
-  }, [notifyOnFinish]);
+  }, []);
 
   const handleToggleNotifyOnFinish = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
