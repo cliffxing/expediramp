@@ -89,10 +89,12 @@ export default function App() {
   });
   const scrollRef = useRef(null);
   const currentStreamControllerRef = useRef(null);
+  const requestInFlightRef = useRef(false);
 
   const prevUserRef = useRef(user);
 
   const clearLoadingState = useCallback(() => {
+    requestInFlightRef.current = false;
     setStreamingText('');
     setActiveTools([]);
     setPendingItinerary(null);
@@ -164,7 +166,16 @@ export default function App() {
   }, []);
 
   const recoverConversationState = useCallback(async () => {
-    if (!user || !token || !conversationId || !isLoading) return;
+    if (!user || !token || !conversationId) return;
+
+    const latestMessage = messages[messages.length - 1];
+    const shouldRecover =
+      isLoading ||
+      requestInFlightRef.current ||
+      Boolean(streamingText) ||
+      (latestMessage?.role === 'user');
+
+    if (!shouldRecover) return;
 
     try {
       const data = await getConversationMessages(token, conversationId);
@@ -184,7 +195,7 @@ export default function App() {
     } catch (error) {
       console.error('Failed to recover conversation after app resume:', error);
     }
-  }, [clearLoadingState, conversationId, isLoading, token, user]);
+  }, [clearLoadingState, conversationId, isLoading, messages, streamingText, token, user]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -264,6 +275,7 @@ export default function App() {
       return;
     }
 
+    requestInFlightRef.current = true;
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
