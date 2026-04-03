@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Plane, Hotel, Train, Navigation, MapPin, Calendar, Users,
   ChevronDown, ChevronUp, Clock, Star, ExternalLink, Link2Off,
@@ -138,6 +138,57 @@ function safeHref(url) {
 }
 
 // ── Shared card wrapper ───────────────────────────────────────
+
+function useWikipediaImage(title, city, originalUrl) {
+  const [imgUrl, setImgUrl] = useState(originalUrl);
+
+  useEffect(() => {
+    setImgUrl(originalUrl);
+    
+    // Only attempt to swap the image if it's using an Unsplash fallback
+    if (!originalUrl || !originalUrl.includes('unsplash.com') || !title) {
+      return;
+    }
+
+    let isMounted = true;
+    
+    const fetchWikiImage = async () => {
+      try {
+        const fetchForQuery = async (searchStr) => {
+          const query = encodeURIComponent(searchStr);
+          const url = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${query}&gsrlimit=5&prop=pageimages&format=json&pithumbsize=600&origin=*`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (!data || !data.query || !data.query.pages) return null;
+          
+          // Convert pages to array and sort by search rank index
+          const pages = Object.values(data.query.pages).sort((a, b) => (a.index || 0) - (b.index || 0));
+          // Return the highest ranked page that actually has a thumbnail
+          return pages.find(p => p.thumbnail && p.thumbnail.source) || null;
+        };
+
+        // 1. Try with city for disambiguation (e.g. "Central Park New York")
+        let bestPage = city ? await fetchForQuery(`${title} ${city}`) : null;
+        
+        // 2. If it fails, fallback to just the title (e.g. "CN Tower")
+        if (!bestPage && title) {
+          bestPage = await fetchForQuery(title);
+        }
+
+        if (bestPage && bestPage.thumbnail && isMounted) {
+          setImgUrl(bestPage.thumbnail.source);
+        }
+      } catch (e) {
+        // silent fail - keep the original fallback photo
+      }
+    };
+
+    fetchWikiImage();
+    return () => { isMounted = false; };
+  }, [title, city, originalUrl]);
+
+  return imgUrl;
+}
 
 function CardWrapper({ href, children, className = '' }) {
   const base = `group block bg-ramp-surface border border-ramp-border shadow-ramp
@@ -463,8 +514,8 @@ function TransitCard({ item }) {
 function ActivityCard({ item }) {
   const d = item.details || {};
   const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600";
-  const [imgError, setImgError] = useState(false);
-  const imgSrc = !imgError && item.image_url ? item.image_url : fallbackImage;
+  const initialImg = item.image_url || fallbackImage;
+  const imgSrc = useWikipediaImage(item.title, d.city, initialImg);
   const category = d.category || '';
   const hasLink = Boolean(safeHref(item.booking_url));
 
@@ -482,7 +533,7 @@ function ActivityCard({ item }) {
       <div className="flex gap-0">
         <div className="w-28 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
           <img src={imgSrc} alt={item.title} className="w-full h-full object-cover"
-               onError={() => setImgError(true)} style={{ minHeight: '110px' }} />
+               onError={(e) => { if (e.target.src !== fallbackImage) e.target.src = fallbackImage; }} style={{ minHeight: '110px' }} />
         </div>
         <div className="flex-1 px-4 py-4 min-w-0 space-y-1.5">
           <div className="flex items-start justify-between gap-3">
@@ -528,8 +579,8 @@ function ActivityCard({ item }) {
 function DailyActivityCard({ item, isLast }) {
   const d = item.details || {};
   const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600";
-  const [imgError, setImgError] = useState(false);
-  const imgSrc = !imgError && item.image_url ? item.image_url : fallbackImage;
+  const initialImg = item.image_url || fallbackImage;
+  const imgSrc = useWikipediaImage(item.title, d.city, initialImg);
   const hasLink = Boolean(safeHref(item.booking_url));
   const timeSlot = parseTimeSlot(item.subtitle || '');
   const TimeIcon = timeSlot?.icon || Clock;
@@ -564,7 +615,7 @@ function DailyActivityCard({ item, isLast }) {
               src={imgSrc}
               alt={item.title}
               className="w-full h-full object-cover"
-              onError={() => setImgError(true)}
+              onError={(e) => { if (e.target.src !== fallbackImage) e.target.src = fallbackImage; }}
               style={{ minHeight: '88px' }}
             />
           </div>
