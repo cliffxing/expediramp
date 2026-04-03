@@ -83,31 +83,33 @@ function DeepThinkingPanel({
       : 'Enable finish notification';
 
   return (
-    <div className="rounded-xl border border-ramp-border bg-ramp-surface px-4 py-3 shadow-sm animate-fade-in">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-3">
+    <div className="rounded-xl border border-ramp-border bg-ramp-surface px-3 py-3 shadow-sm animate-fade-in sm:px-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start gap-3">
             <PulseBar />
-            <div>
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-ramp-text">Thinking deeply</p>
-              <p className="text-xs text-ramp-text-secondary">{detail}</p>
+              <p className="mt-0.5 text-xs leading-relaxed text-ramp-text-secondary">{detail}</p>
             </div>
           </div>
           <p className="mt-2 text-2xs uppercase tracking-[0.18em] text-ramp-text-tertiary">
             {seconds}s elapsed
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onToggleNotify}
-          className={`shrink-0 border px-3 py-1.5 text-xs font-medium transition-colors ${
-            notifyEnabled
-              ? 'border-ramp-yellow bg-ramp-yellow/15 text-ramp-text'
-              : 'border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary hover:bg-ramp-bg hover:text-ramp-text'
-          }`}
-        >
-          {notifyLabel}
-        </button>
+        <div className="flex w-full shrink-0 items-center sm:w-auto">
+          <button
+            type="button"
+            onClick={onToggleNotify}
+            className={`border px-3 py-1.5 text-xs font-medium transition-colors ${
+              notifyEnabled
+                ? 'border-ramp-yellow bg-ramp-yellow/15 text-ramp-text'
+                : 'border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary hover:bg-ramp-bg hover:text-ramp-text'
+            } w-full text-center sm:w-auto`}
+          >
+            {notifyLabel}
+          </button>
+        </div>
       </div>
     </div>
   );

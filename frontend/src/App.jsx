@@ -92,11 +92,21 @@ export default function App() {
   const requestInFlightRef = useRef(false);
   const notifyOnFinishRef = useRef(false);
   const notificationPermissionRef = useRef(notificationPermission);
+  const messagesRef = useRef(messages);
+  const backgroundSyncInFlightRef = useRef(false);
+  const completionNotificationSentRef = useRef(false);
+  const lastStreamActivityAtRef = useRef(0);
 
   const prevUserRef = useRef(user);
 
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   const clearLoadingState = useCallback(() => {
     requestInFlightRef.current = false;
+    notifyOnFinishRef.current = false;
+    backgroundSyncInFlightRef.current = false;
     setStreamingText('');
     setActiveTools([]);
     setPendingItinerary(null);
@@ -136,6 +146,7 @@ export default function App() {
 
   const notifyRequestFinished = useCallback((title, body) => {
     if (
+      completionNotificationSentRef.current ||
       !notifyOnFinishRef.current ||
       typeof window === 'undefined' ||
       !('Notification' in window) ||
@@ -149,6 +160,7 @@ export default function App() {
     }
 
     try {
+      completionNotificationSentRef.current = true;
       new Notification(title, {
         body,
         icon: '/favicon.svg',
@@ -165,12 +177,15 @@ export default function App() {
     }
 
     if (Notification.permission === 'granted') {
+      notifyOnFinishRef.current = !notifyOnFinishRef.current;
       setNotifyOnFinish((prev) => !prev);
       setNotificationPermission('granted');
       return;
     }
 
     const permission = await Notification.requestPermission();
+    notificationPermissionRef.current = permission;
+    notifyOnFinishRef.current = permission === 'granted';
     setNotificationPermission(permission);
     setNotifyOnFinish(permission === 'granted');
   }, []);
@@ -179,11 +194,16 @@ export default function App() {
     if (!user || !token || !conversationId) return;
 
     const latestMessage = messages[messages.length - 1];
+    const streamLooksStale =
+      currentStreamControllerRef.current &&
+      lastStreamActivityAtRef.current > 0 &&
+      Date.now() - lastStreamActivityAtRef.current > 12000;
     const shouldRecover =
       isLoading ||
       requestInFlightRef.current ||
       Boolean(streamingText) ||
-      (latestMessage?.role === 'user');
+      (latestMessage?.role === 'user') ||
+      streamLooksStale;
 
     if (!shouldRecover) return;
 
@@ -208,24 +228,110 @@ export default function App() {
   }, [clearLoadingState, conversationId, isLoading, messages, streamingText, token, user]);
 
   useEffect(() => {
+    const handleResume = () => {
+      setTimeout(() => {
+        if (scrollRef.current) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      }, 50);
+      recoverConversationState();
+      setTimeout(() => recoverConversationState(), 1200);
+    };
+
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && !notifyOnFinish) {
+      if (document.visibilityState === 'hidden' && !notifyOnFinishRef.current) {
         abortActiveStream();
         return;
       }
 
       if (document.visibilityState === 'visible') {
-        setTimeout(() => {
-          if (scrollRef.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-          }
-        }, 50);
-        recoverConversationState();
+        handleResume();
       }
     };
+
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [abortActiveStream, notifyOnFinish, recoverConversationState]);
+    window.addEventListener('focus', handleResume);
+    window.addEventListener('pageshow', handleResume);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleResume);
+      window.removeEventListener('pageshow', handleResume);
+    };
+  }, [abortActiveStream, recoverConversationState]);
+
+  useEffect(() => {
+    if (!isLoading || !conversationId || !user || !token || document.visibilityState !== 'visible') {
+      return undefined;
+    }
+
+    const interval = setInterval(() => {
+      const latestMessage = messagesRef.current[messagesRef.current.length - 1];
+      const streamLooksStale =
+        currentStreamControllerRef.current &&
+        lastStreamActivityAtRef.current > 0 &&
+        Date.now() - lastStreamActivityAtRef.current > 12000;
+
+      if (streamLooksStale || latestMessage?.role === 'user') {
+        recoverConversationState();
+      }
+    }, 8000);
+
+    return () => clearInterval(interval);
+  }, [conversationId, isLoading, recoverConversationState, token, user]);
+
+  useEffect(() => {
+    if (!user || !token || !conversationId) return undefined;
+
+    const syncBackgroundConversation = async () => {
+      if (
+        !requestInFlightRef.current ||
+        !notifyOnFinishRef.current ||
+        document.visibilityState !== 'hidden' ||
+        backgroundSyncInFlightRef.current
+      ) {
+        return;
+      }
+
+      backgroundSyncInFlightRef.current = true;
+      try {
+        const data = await getConversationMessages(token, conversationId);
+        const loaded = (data.messages || []).map((m) => ({
+          role: m.role,
+          content: m.content,
+          itinerary: m.metadata?.itinerary || null,
+        }));
+
+        const latestLoaded = loaded[loaded.length - 1];
+        const latestCurrent = messagesRef.current[messagesRef.current.length - 1];
+        const hasNewAssistantReply =
+          latestLoaded?.role === 'assistant' &&
+          (
+            latestCurrent?.role !== 'assistant' ||
+            latestCurrent?.content !== latestLoaded?.content ||
+            Boolean(latestLoaded?.itinerary && !latestCurrent?.itinerary)
+          );
+
+        if (!hasNewAssistantReply) return;
+
+        currentStreamControllerRef.current?.abort();
+        currentStreamControllerRef.current = null;
+        setMessages(loaded);
+        clearLoadingState();
+        notifyRequestFinished(
+          latestLoaded.itinerary ? 'Your trip is ready' : 'Expediramp finished thinking',
+          latestLoaded.itinerary?.trip_title || 'Your latest travel response is ready.'
+        );
+      } catch (error) {
+        console.error('Failed to sync background conversation state:', error);
+      } finally {
+        backgroundSyncInFlightRef.current = false;
+      }
+    };
+
+    const interval = setInterval(syncBackgroundConversation, 12000);
+    return () => clearInterval(interval);
+  }, [clearLoadingState, conversationId, notifyRequestFinished, token, user]);
 
   useEffect(() => {
     if (!isLoading || !requestStartedAt) return undefined;
@@ -286,6 +392,9 @@ export default function App() {
     }
 
     requestInFlightRef.current = true;
+    notifyOnFinishRef.current = false;
+    completionNotificationSentRef.current = false;
+    lastStreamActivityAtRef.current = Date.now();
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
@@ -409,12 +518,20 @@ export default function App() {
         token,
         signal: streamController.signal,
         onToken: (tok) => {
+          lastStreamActivityAtRef.current = Date.now();
           accumulatedText += tok;
           setStreamingText(accumulatedText);
         },
-        onToolStart: (data) => setActiveTools((prev) => [...prev, data.tool]),
-        onToolResult: (data) => setActiveTools((prev) => prev.filter((t) => t !== data.tool)),
+        onToolStart: (data) => {
+          lastStreamActivityAtRef.current = Date.now();
+          setActiveTools((prev) => [...prev, data.tool]);
+        },
+        onToolResult: (data) => {
+          lastStreamActivityAtRef.current = Date.now();
+          setActiveTools((prev) => prev.filter((t) => t !== data.tool));
+        },
         onItinerary: (data) => {
+          lastStreamActivityAtRef.current = Date.now();
           receivedItinerary = data;
           setPendingItinerary(data);
           setActiveTools([]);
