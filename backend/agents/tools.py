@@ -139,8 +139,6 @@ TOOLS = [
                                                 "stars": {"type": "number"},
                                                 "amenities": {"type": "array", "items": {"type": "string"}},
                                                 "cancellation_policy": {"type": "string"},
-                                                "price_per_pass": {"type": "number"},
-                                                "quantity": {"type": "integer"},
                                                 "pass_duration_days": {"type": "integer"},
                                                 "days_in_city": {"type": "integer"},
                                                 "pass_label": {"type": "string"}
@@ -251,7 +249,7 @@ You must NEVER output the trip itinerary as a Markdown list or plain text in you
 ## STRICT DATA REQUIREMENTS FOR `build_itinerary`
 - For HOTELS: `title` = actual hotel name from search results. `cost` = total for all nights (`total_price`). `details` MUST contain `price_per_night`, `nights`, `guest_rating`, `stars`, `amenities`.
 - For FLIGHTS: `title` = "Flight from {origin} to {destination}". `details` MUST contain full `segments`, `layovers`, `total_duration_minutes`, `airline`. For round-trips also include `is_round_trip: true`, `outbound_segments`, `outbound_layovers`, `outbound_nonstop`, `outbound_duration_minutes`, `return_segments`, `return_layovers`, `return_nonstop`, `return_duration_minutes`, `return_date`. DO NOT TRUNCATE ARRAYS.
-- For TRANSIT: `cost` = `total_price` from search_transit (never `price_per_pass`). `details` MUST contain `price_per_pass`, `quantity`, `pass_duration_days`, `days_in_city`, `pass_label`. Transit `booking_url` MUST be the official transit authority website. Examples: NYC → https://new.mta.info, London → https://www.tfl.gov.uk, Tokyo → https://www.tokyometro.jp/en, Paris → https://www.ratp.fr/en, Toronto → https://www.ttc.ca, Chicago → https://www.transitchicago.com, SF → https://www.bart.gov, Seoul → https://www.seoulmetro.co.kr/en, Singapore → https://www.smrt.com.sg.
+- For TRANSIT: `cost` MUST be 0 (transit cost is excluded from trip total). `details` MUST contain `pass_duration_days`, `days_in_city`, `pass_label`. Transit `booking_url` MUST be the official transit authority website. Examples: NYC → https://new.mta.info, London → https://www.tfl.gov.uk, Tokyo → https://www.tokyometro.jp/en, Paris → https://www.ratp.fr/en, Toronto → https://www.ttc.ca, Chicago → https://www.transitchicago.com, SF → https://www.bart.gov, Seoul → https://www.seoulmetro.co.kr/en, Singapore → https://www.smrt.com.sg.
 - Preserve `currency_code` and `currency_symbol` in both top-level item and `details` when available.
 - Always copy `booking_url` and `image_url` from search results to the top level. NEVER drop these on itinerary updates.
 - CRITICAL: When updating an existing itinerary, copy every flight item verbatim from [FULL_ITINERARY_JSON], including the complete `details.airline` object (`logo`, `code`, `name`). NEVER reconstruct the airline object from scratch — the logo URL will be lost.
@@ -261,7 +259,7 @@ You must NEVER output the trip itinerary as a Markdown list or plain text in you
 1. **STRICT DOMAIN RESTRICTION:** You MUST ONLY respond to travel-related requests (trip planning, flights, hotels, transit, activities). If a user asks about anything outside of travel (e.g., coding, recipes, general trivia), politely decline and state that you only handle travel planning. Do NOT answer the non-travel question.
 2. **RENTAL CARS ARE NOT OFFERED.** Offer public transit instead when the city has good transit.
 3. **TRANSIT: ONLY SUGGEST WHEN IT MAKES SENSE.** Never call `search_transit` for car-dependent cities (LA, Miami, Houston, Dallas, Phoenix, Las Vegas, Orlando, Atlanta, Denver). Only for: European cities, East Asian cities (Tokyo, Osaka, Seoul, Singapore, Hong Kong), and transit-forward North American cities (NYC, Chicago, Boston, Toronto, SF, Seattle, DC, Montreal, Vancouver).
-4. **TRANSIT QUANTITY: ALWAYS PASS days_in_city.** Use `total_price` (not `price_per_pass`) as the transit item's `cost`. If `search_transit` returns no results or an implausible price (e.g. over $80/pass), use your training knowledge to provide a reasonable best-guess estimate — you know roughly what a day pass costs in Tokyo ($5), London ($8/day on Oyster), Paris (Navigo ~$4/day), Montreal ($3.75/ride), etc. A good-faith estimate is far better than an absurd number or no transit item at all.
+4. **TRANSIT: ALWAYS PASS days_in_city.** Transit costs vary by usage, so we do not include them in the total price (always set cost to 0). If `search_transit` returns no results, use your training knowledge to provide a reasonable transit pass name and official URL.
 5. **ACT IMMEDIATELY with smart defaults.** Do NOT ask clarifying questions before searching. Assume 1 traveler, economy class, mid-range hotels. The user can refine.
 6. **Search proactively.** Call multiple search tools in parallel when possible.
 7. **STRICT TIMELINE UI REQUIREMENT:** Always call `build_itinerary`. Never write the itinerary as markdown.

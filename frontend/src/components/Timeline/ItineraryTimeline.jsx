@@ -64,8 +64,8 @@ function formatDuration(minutes) {
 }
 
 function getTotalCostUSD(items, itineraryTotal) {
-  if (itineraryTotal && itineraryTotal > 0) return itineraryTotal;
-  return items.reduce((sum, i) => sum + (i.cost || 0), 0);
+  // Ignore AI-provided total to ensure transit is strictly excluded from the final sum
+  return items.reduce((sum, i) => sum + (i.type === 'transit' ? 0 : (i.cost || 0)), 0);
 }
 
 // ── Time slot parsing ─────────────────────────────────────────
@@ -468,13 +468,10 @@ function HotelCard({ item }) {
 
 function TransitCard({ item }) {
   const d = item.details || {};
-  const quantity = d.quantity || 1;
-  const pricePerPass = d.price_per_pass;
   const passDurationDays = d.pass_duration_days;
   const daysInCity = d.days_in_city;
   const passLabel = d.pass_label || item.title;
 
-  const perPassStr = pricePerPass > 0 ? `${formatCurrency(pricePerPass, item)}/pass` : null;
   const coverageStr = passDurationDays && daysInCity ? `covers ${daysInCity} day${daysInCity !== 1 ? 's' : ''}` : null;
 
   return (
@@ -490,16 +487,11 @@ function TransitCard({ item }) {
             <p className="text-sm font-semibold text-ramp-text mt-0.5">{passLabel}</p>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
               {item.subtitle && <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>}
-              {quantity > 1 && perPassStr && <p className="text-[10px] text-ramp-text-tertiary">{perPassStr}</p>}
               {coverageStr && <p className="text-[10px] text-ramp-text-tertiary">{coverageStr}</p>}
             </div>
           </div>
         </div>
         <div className="text-right flex-shrink-0 flex items-center gap-2">
-          <div className="text-right">
-            <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
-            {quantity > 1 && <p className="text-[10px] text-ramp-text-tertiary">{quantity} passes</p>}
-          </div>
           {safeHref(item.booking_url) && (
             <ExternalLink size={11} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
           )}
@@ -719,7 +711,7 @@ function TimelineItem({ item, index, isLast, runningCost }) {
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-ramp-text-secondary">{formatDate(item.date)}</span>
           <span className="text-[10px] text-ramp-text-tertiary">
-            {runningCost > 0 ? `Running: ${formatCurrency(runningCost, { currency_code: 'USD', currency_symbol: '$' })}` : ''}
+            {runningCost > 0 && item.type !== 'transit' ? `Running: ${formatCurrency(runningCost, { currency_code: 'USD', currency_symbol: '$' })}` : ''}
           </span>
         </div>
         <Card item={item} />
@@ -734,14 +726,16 @@ export default function ItineraryTimeline({ itinerary }) {
   if (!itinerary) return null;
 
   const items = (itinerary.items || []).filter(
-    item => !(item.type === 'transit' && !item.cost && !item.booking_url)
+    item => !(item.type === 'transit' && !item.booking_url)
   );
 
   const totalCost = getTotalCostUSD(items, itinerary.total_cost);
 
   let running = 0;
   const runningCosts = items.map((item) => {
-    running += (item.cost || 0);
+    if (item.type !== 'transit') {
+      running += (item.cost || 0);
+    }
     return running;
   });
 

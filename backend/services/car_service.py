@@ -250,16 +250,12 @@ def _normalize_city(city: str) -> str:
 
 def search_transit(city: str, days_in_city: int = 7) -> list[dict]:
     """
-    Return the best transit pass option for a city, with quantity and total_price
-    pre-calculated for the traveler's stay length.
+    Return the best transit pass option for a city.
 
     Returned fields per result:
       name            — pass name
-      price_per_pass  — cost of one pass (USD)
       pass_duration_days — days covered by one pass
-      quantity        — passes needed to cover days_in_city
-      total_price     — price_per_pass × quantity  ← use this as the itinerary cost
-      pass_label      — e.g. "2× 7-Day Unlimited MetroCard"
+      pass_label      — e.g. "7-Day Unlimited MetroCard"
       days_in_city    — echoed back for the UI
       booking_url     — link to purchase
     """
@@ -379,9 +375,8 @@ def search_transit(city: str, days_in_city: int = 7) -> list[dict]:
         enriched["booking_url"] = fallback_url
 
     logger.info(
-        "Transit %s (%dd): %s — %d× %dd pass = $%.2f",
+        "Transit %s (%dd): %s",
         city, days_in_city, enriched["name"],
-        enriched["quantity"], enriched["pass_duration_days"], enriched["total_price"],
     )
 
     return [enriched]
@@ -623,25 +618,17 @@ def _calculate_quantity(days_in_city: int, pass_duration_days: int) -> int:
 
 
 def _enrich_with_quantity(option: dict, days_in_city: int) -> dict:
-    """Add quantity, total_price, and pass_label to a transit option."""
+    """Add pass_label to a transit option."""
     name = option.get("name", "Transit Pass")
     pass_type = option.get("type", "transit_card")
-    price = option.get("price", 0)
 
     duration = _detect_pass_duration(name, pass_type)
-    quantity = _calculate_quantity(days_in_city, duration)
     actual_duration = duration if duration < _UNLIMITED_DURATION else days_in_city
-
-    total_price = round(price * quantity, 2)
-    pass_label = f"{quantity}× {name}" if quantity > 1 else name
 
     return {
         **option,
-        "price_per_pass":    price,
         "pass_duration_days": actual_duration,
-        "quantity":          quantity,
-        "total_price":       total_price,
-        "pass_label":        pass_label,
+        "pass_label":        name,
         "days_in_city":      days_in_city,
         "booking_url":       option.get("booking_url", option.get("url", "")),
         "currency_code":     "USD",
