@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plane, Hotel, Train, Map, RotateCcw } from 'lucide-react';
 
 const TOOL_META = {
@@ -59,6 +59,60 @@ function ThinkingIndicator() {
   );
 }
 
+function DeepThinkingPanel({
+  elapsedMs,
+  activeToolCount,
+  notifyEnabled,
+  notificationPermission,
+  onToggleNotify,
+}) {
+  const seconds = Math.max(1, Math.round(elapsedMs / 1000));
+  const detail = useMemo(() => {
+    if (activeToolCount > 1) {
+      return 'Comparing flights, stays, and transit to get the best mix.';
+    }
+    if (activeToolCount === 1) {
+      return 'Finishing a deeper pass so the trip stays coherent and bookable.';
+    }
+    return 'Taking a deeper planning pass to weigh timing, routing, and tradeoffs.';
+  }, [activeToolCount]);
+
+  const notifyLabel =
+    notificationPermission === 'granted'
+      ? (notifyEnabled ? 'Will notify when finished' : 'Notify me when finished')
+      : 'Enable finish notification';
+
+  return (
+    <div className="rounded-xl border border-ramp-border bg-ramp-surface px-4 py-3 shadow-sm animate-fade-in">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3">
+            <PulseBar />
+            <div>
+              <p className="text-sm font-semibold text-ramp-text">Thinking deeply</p>
+              <p className="text-xs text-ramp-text-secondary">{detail}</p>
+            </div>
+          </div>
+          <p className="mt-2 text-2xs uppercase tracking-[0.18em] text-ramp-text-tertiary">
+            {seconds}s elapsed
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onToggleNotify}
+          className={`shrink-0 border px-3 py-1.5 text-xs font-medium transition-colors ${
+            notifyEnabled
+              ? 'border-ramp-yellow bg-ramp-yellow/15 text-ramp-text'
+              : 'border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary hover:bg-ramp-bg hover:text-ramp-text'
+          }`}
+        >
+          {notifyLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ToolRow({ name }) {
   const meta = TOOL_META[name];
   if (!meta) return null;
@@ -75,13 +129,30 @@ function ToolRow({ name }) {
   );
 }
 
-export default function ToolStatus({ tools, isLoading }) {
+export default function ToolStatus({
+  tools,
+  isLoading,
+  elapsedMs = 0,
+  notifyEnabled = false,
+  notificationPermission = 'default',
+  onToggleNotify = () => {},
+}) {
   if (!isLoading && (!tools || tools.length === 0)) return null;
 
-  const activeKnownTools = (tools || []).filter((t) => TOOL_META[t]);
+  const activeKnownTools = [...new Set((tools || []).filter((t) => TOOL_META[t]))];
+  const showDeepThinking = elapsedMs >= 6000;
 
   return (
     <div className="space-y-2 py-1">
+      {showDeepThinking && (
+        <DeepThinkingPanel
+          elapsedMs={elapsedMs}
+          activeToolCount={activeKnownTools.length}
+          notifyEnabled={notifyEnabled}
+          notificationPermission={notificationPermission}
+          onToggleNotify={onToggleNotify}
+        />
+      )}
       {activeKnownTools.length > 0 ? (
         activeKnownTools.map((tool, i) => (
           <ToolRow key={`${tool}-${i}`} name={tool} />

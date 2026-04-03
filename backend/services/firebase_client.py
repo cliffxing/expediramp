@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import firebase_admin
 from firebase_admin import auth, credentials, firestore
@@ -7,6 +7,8 @@ from config import Config
 
 _app = None
 _db = None
+_token_cache = {}
+_TOKEN_CACHE_TTL = timedelta(minutes=5)
 
 
 def _utc_now_iso() -> str:
@@ -123,11 +125,22 @@ def get_itinerary(conversation_id: str) -> dict | None:
 
 
 def verify_token(access_token: str) -> dict | None:
+    now = datetime.now(timezone.utc)
+    cached = _token_cache.get(access_token)
+    if cached and cached["expires_at"] > now:
+        return cached["user"]
+
     try:
         decoded = auth.verify_id_token(access_token, app=get_firebase_app())
-        return {
+        user = {
             "id": decoded["uid"],
             "email": decoded.get("email"),
         }
+        _token_cache[access_token] = {
+            "user": user,
+            "expires_at": now + _TOKEN_CACHE_TTL,
+        }
+        return user
     except Exception:
+        _token_cache.pop(access_token, None)
         return None

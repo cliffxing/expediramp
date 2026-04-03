@@ -36,7 +36,7 @@ function SidebarToggleGlyph({ collapsed }) {
   );
 }
 
-export default function Sidebar({ token, activeConversationId, onSelect, onNewChat }) {
+export default function Sidebar({ token, activeConversationId, refreshKey, onSelect, onNewChat }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
@@ -54,7 +54,7 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
       .then((data) => setConversations(data.conversations || []))
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [token, activeConversationId]);
+  }, [token, refreshKey]);
 
   const filteredConversations = useMemo(() => {
     const normalized = searchQuery.trim().toLowerCase();

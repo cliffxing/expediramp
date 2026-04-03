@@ -9,6 +9,7 @@ GET  /api/conversations/<id>/messages — Get messages for a conversation
 
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from flask import Blueprint, request, jsonify, Response, stream_with_context
 from agents.travel_agent import run_agent, run_agent_streaming
 from agents.tools import SYSTEM_PROMPT
@@ -23,6 +24,7 @@ from services.firebase_client import (
 
 logger = logging.getLogger(__name__)
 chat_bp = Blueprint("chat", __name__)
+_persistence_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def _get_user_optional():
@@ -32,6 +34,23 @@ def _get_user_optional():
         token = auth[7:]
         return verify_token(token)
     return None
+
+
+def _persist_assistant_response(conversation_id, user_id, reply, itinerary):
+    if not conversation_id or not reply:
+        return
+
+    try:
+        save_message(
+            conversation_id,
+            "assistant",
+            reply,
+            metadata={"itinerary": itinerary} if itinerary else None,
+        )
+        if itinerary:
+            save_itinerary(conversation_id, user_id, itinerary)
+    except Exception as exc:
+        logger.warning("Failed to persist assistant response: %s", exc)
 
 
 @chat_bp.route("/api/chat", methods=["POST"])
@@ -69,17 +88,13 @@ def chat():
 
     # Persist assistant reply
     if user and conversation_id:
-        try:
-            save_message(
-                conversation_id,
-                "assistant",
-                result["reply"],
-                metadata={"itinerary": result["itinerary"]} if result["itinerary"] else None,
-            )
-            if result["itinerary"]:
-                save_itinerary(conversation_id, user["id"], result["itinerary"])
-        except Exception as e:
-            logger.warning("Failed to save assistant message: %s", e)
+        _persistence_executor.submit(
+            _persist_assistant_response,
+            conversation_id,
+            user["id"],
+            result["reply"],
+            result["itinerary"],
+        )
 
     return jsonify({
         "reply": result["reply"],
@@ -129,17 +144,13 @@ def chat_stream():
 
         # Persist after stream completes
         if user and conversation_id and full_reply:
-            try:
-                save_message(
-                    conversation_id,
-                    "assistant",
-                    full_reply,
-                    metadata={"itinerary": itinerary} if itinerary else None,
-                )
-                if itinerary:
-                    save_itinerary(conversation_id, user["id"], itinerary)
-            except Exception:
-                pass
+            _persistence_executor.submit(
+                _persist_assistant_response,
+                conversation_id,
+                user["id"],
+                full_reply,
+                itinerary,
+            )
 
     return Response(
         stream_with_context(generate()),

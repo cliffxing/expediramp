@@ -79,6 +79,14 @@ export default function App() {
   const [conversationId, setConversationId] = useState(null);
   const [loadingConvo, setLoadingConvo] = useState(false);
   const [dismissedPromptKey, setDismissedPromptKey] = useState(null);
+  const [requestStartedAt, setRequestStartedAt] = useState(null);
+  const [notifyOnFinish, setNotifyOnFinish] = useState(false);
+  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
+  const [elapsedNow, setElapsedNow] = useState(Date.now());
+  const [notificationPermission, setNotificationPermission] = useState(() => {
+    if (typeof window === 'undefined' || !('Notification' in window)) return 'denied';
+    return Notification.permission;
+  });
   const scrollRef = useRef(null);
   const currentStreamControllerRef = useRef(null);
 
@@ -94,9 +102,52 @@ export default function App() {
       setActiveTools([]);
       setConversationId(null);
       setDismissedPromptKey(null);
+      setRequestStartedAt(null);
+      setNotifyOnFinish(false);
       currentStreamControllerRef.current = null;
     }
   }, [user]);
+
+  const notifyRequestFinished = useCallback((title, body) => {
+    if (
+      !notifyOnFinish ||
+      typeof window === 'undefined' ||
+      !('Notification' in window) ||
+      Notification.permission !== 'granted'
+    ) {
+      return;
+    }
+
+    if (document.visibilityState === 'visible' && document.hasFocus()) {
+      return;
+    }
+
+    try {
+      new Notification(title, {
+        body,
+        icon: '/favicon.svg',
+        badge: '/favicon.svg',
+      });
+    } catch (error) {
+      console.error('Failed to show completion notification:', error);
+    }
+  }, [notifyOnFinish]);
+
+  const handleToggleNotifyOnFinish = useCallback(async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      return;
+    }
+
+    if (Notification.permission === 'granted') {
+      setNotifyOnFinish((prev) => !prev);
+      setNotificationPermission('granted');
+      return;
+    }
+
+    const permission = await Notification.requestPermission();
+    setNotificationPermission(permission);
+    setNotifyOnFinish(permission === 'granted');
+  }, []);
 
   const recoverConversationState = useCallback(async () => {
     if (!user || !token || !conversationId || !isLoading) return;
@@ -119,6 +170,8 @@ export default function App() {
       setPendingItinerary(null);
       setActiveTools([]);
       setIsLoading(false);
+      setRequestStartedAt(null);
+      setNotifyOnFinish(false);
     } catch (error) {
       console.error('Failed to recover conversation after app resume:', error);
     }
@@ -139,6 +192,12 @@ export default function App() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [recoverConversationState]);
 
+  useEffect(() => {
+    if (!isLoading || !requestStartedAt) return undefined;
+    const interval = setInterval(() => setElapsedNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isLoading, requestStartedAt]);
+
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -158,6 +217,8 @@ export default function App() {
     setActiveTools([]);
     setConversationId(null);
     setDismissedPromptKey(null);
+    setRequestStartedAt(null);
+    setNotifyOnFinish(false);
   };
 
   const handleDownloadPdf = useCallback((message) => {
@@ -171,6 +232,8 @@ export default function App() {
     setPendingItinerary(null);
     setMessages([]);
     setDismissedPromptKey(null);
+    setRequestStartedAt(null);
+    setNotifyOnFinish(false);
     try {
       const data = await getConversationMessages(token, convo.id);
       const loaded = (data.messages || []).map((m) => ({
@@ -190,6 +253,9 @@ export default function App() {
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
+    setElapsedNow(Date.now());
+    setRequestStartedAt(Date.now());
+    setNotifyOnFinish(false);
     setStreamingText('');
     setActiveTools([]);
     setPendingItinerary(null);
@@ -201,6 +267,7 @@ export default function App() {
         const convo = await createConversation(token, text.slice(0, 60));
         activeConvoId = convo.id;
         setConversationId(convo.id);
+        setSidebarRefreshKey((prev) => prev + 1);
       } catch (e) {
         console.error('Failed to create conversation:', e);
       }
@@ -328,7 +395,16 @@ export default function App() {
           setActiveTools([]);
           setPendingItinerary(null);
           setIsLoading(false);
+          setRequestStartedAt(null);
+          setNotifyOnFinish(false);
+          setSidebarRefreshKey((prev) => prev + 1);
           currentStreamControllerRef.current = null;
+          notifyRequestFinished(
+            receivedItinerary ? 'Your trip is ready' : 'Expediramp finished thinking',
+            receivedItinerary
+              ? (receivedItinerary.trip_title || 'Your itinerary is ready to review.')
+              : 'Your latest travel response is ready.'
+          );
         },
         onError: (err) => {
           setMessages((prev) => [
@@ -339,7 +415,11 @@ export default function App() {
           setActiveTools([]);
           setPendingItinerary(null);
           setIsLoading(false);
+          setRequestStartedAt(null);
+          setNotifyOnFinish(false);
+          setSidebarRefreshKey((prev) => prev + 1);
           currentStreamControllerRef.current = null;
+          notifyRequestFinished('Trip planning stopped', 'Expediramp ran into an error on your latest request.');
         },
       });
     } catch (e) {
@@ -360,7 +440,11 @@ export default function App() {
         setStreamingText('');
         setPendingItinerary(null);
         setIsLoading(false);
+        setRequestStartedAt(null);
+        setNotifyOnFinish(false);
+        setSidebarRefreshKey((prev) => prev + 1);
         currentStreamControllerRef.current = null;
+        notifyRequestFinished('Trip planning stopped', 'Expediramp could not finish your latest request.');
       }
     }
   };
@@ -377,6 +461,7 @@ export default function App() {
           <Sidebar
             token={token}
             activeConversationId={conversationId}
+            refreshKey={sidebarRefreshKey}
             onSelect={handleSelectConversation}
             onNewChat={handleNewChat}
           />
@@ -436,7 +521,14 @@ export default function App() {
                   {isLoading && (
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-8" />
-                      <ToolStatus tools={activeTools} isLoading={isLoading} />
+                      <ToolStatus
+                        tools={activeTools}
+                        isLoading={isLoading}
+                        elapsedMs={requestStartedAt ? elapsedNow - requestStartedAt : 0}
+                        notifyEnabled={notifyOnFinish}
+                        notificationPermission={notificationPermission}
+                        onToggleNotify={handleToggleNotifyOnFinish}
+                      />
                     </div>
                   )}
 
