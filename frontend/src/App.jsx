@@ -80,6 +80,7 @@ export default function App() {
   const [loadingConvo, setLoadingConvo] = useState(false);
   const [dismissedPromptKey, setDismissedPromptKey] = useState(null);
   const scrollRef = useRef(null);
+  const currentStreamControllerRef = useRef(null);
 
   const prevUserRef = useRef(user);
 
@@ -93,8 +94,35 @@ export default function App() {
       setActiveTools([]);
       setConversationId(null);
       setDismissedPromptKey(null);
+      currentStreamControllerRef.current = null;
     }
   }, [user]);
+
+  const recoverConversationState = useCallback(async () => {
+    if (!user || !token || !conversationId || !isLoading) return;
+
+    try {
+      const data = await getConversationMessages(token, conversationId);
+      const loaded = (data.messages || []).map((m) => ({
+        role: m.role,
+        content: m.content,
+        itinerary: m.metadata?.itinerary || null,
+      }));
+
+      const hasAssistantReply = loaded.some((message) => message.role === 'assistant');
+      if (!hasAssistantReply) return;
+
+      currentStreamControllerRef.current?.abort();
+      currentStreamControllerRef.current = null;
+      setMessages(loaded);
+      setStreamingText('');
+      setPendingItinerary(null);
+      setActiveTools([]);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Failed to recover conversation after app resume:', error);
+    }
+  }, [conversationId, isLoading, token, user]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
@@ -104,11 +132,12 @@ export default function App() {
             scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
           }
         }, 50);
+        recoverConversationState();
       }
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [recoverConversationState]);
 
   const scrollToBottom = useCallback(() => {
     if (scrollRef.current) {
@@ -121,6 +150,8 @@ export default function App() {
   }, [messages, streamingText, pendingItinerary, scrollToBottom]);
 
   const handleNewChat = () => {
+    currentStreamControllerRef.current?.abort();
+    currentStreamControllerRef.current = null;
     setMessages([]);
     setPendingItinerary(null);
     setStreamingText('');
@@ -264,6 +295,8 @@ export default function App() {
 
     let accumulatedText = '';
     let receivedItinerary = null;
+    const streamController = new AbortController();
+    currentStreamControllerRef.current = streamController;
 
     try {
       await sendMessageStream({
@@ -271,6 +304,7 @@ export default function App() {
         history,
         conversationId: activeConvoId,
         token,
+        signal: streamController.signal,
         onToken: (tok) => {
           accumulatedText += tok;
           setStreamingText(accumulatedText);
@@ -294,6 +328,7 @@ export default function App() {
           setActiveTools([]);
           setPendingItinerary(null);
           setIsLoading(false);
+          currentStreamControllerRef.current = null;
         },
         onError: (err) => {
           setMessages((prev) => [
@@ -304,9 +339,13 @@ export default function App() {
           setActiveTools([]);
           setPendingItinerary(null);
           setIsLoading(false);
+          currentStreamControllerRef.current = null;
         },
       });
     } catch (e) {
+      if (e?.name === 'AbortError') {
+        return;
+      }
       if (isLoading) {
         if (accumulatedText.trim() || receivedItinerary) {
           const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
@@ -321,6 +360,7 @@ export default function App() {
         setStreamingText('');
         setPendingItinerary(null);
         setIsLoading(false);
+        currentStreamControllerRef.current = null;
       }
     }
   };

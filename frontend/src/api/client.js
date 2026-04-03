@@ -22,10 +22,11 @@ export async function sendMessage({ message, history, conversationId, token }) {
   return res.json();
 }
 
-export async function sendMessageStream({ message, history, conversationId, token, onToken, onToolStart, onToolResult, onItinerary, onDone, onError }) {
+export async function sendMessageStream({ message, history, conversationId, token, signal, onToken, onToolStart, onToolResult, onItinerary, onDone, onError }) {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
     headers: getHeaders(token),
+    signal,
     body: JSON.stringify({
       message,
       history,

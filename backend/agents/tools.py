@@ -279,13 +279,11 @@ After calling `build_itinerary`, ALWAYS end your response with:
 ### Step 2 — Wait for yes
 Do NOT search for activities or call `build_daily_itinerary` until the user says yes.
 
-### Step 3 — Determine the coverage window (7-day cap)
+### Step 3 — Determine the coverage window
 When the user accepts:
 1. Count the total number of days in the trip (from start_date to end_date inclusive).
-2. **Cap at 7 days.** If the trip is longer than 7 days, cover only the first 7 days and include this exact notice in your conversational reply BEFORE calling build_daily_itinerary:
-   "I'll cover the first 7 days of your trip in detail — that's the maximum I can plan at once to keep things manageable. Here's your day-by-day itinerary:"
-3. If the trip is 7 days or fewer, cover every single day — no exceptions.
-4. Write out the list of dates you will cover (e.g. "Days: 2025-06-10, 2025-06-11, ...") as an internal check before generating items. **Every date in that list MUST appear at least 4 times in the items array.**
+2. Cover **every single day of the trip** — no caps, no truncation, no partial coverage.
+3. Write out the list of dates you will cover (e.g. "Days: 2025-06-10, 2025-06-11, ...") as an internal check before generating items. **Every date in that list MUST appear in the items array, and every full day should usually have at least 4 items.**
 
 ### Step 4 — Map the flight schedule onto each day BEFORE writing any activities
 This is the most important step. Do it first.
