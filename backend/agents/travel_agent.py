@@ -43,7 +43,7 @@ def _execute_tool(name: str, arguments: dict) -> str:
         elif name == "build_itinerary":
             result = arguments.get("itinerary", arguments)
         else:
-        result = {"error": f"Unknown tool: {name}"}
+            result = {"error": f"Unknown tool: {name}"}
     except Exception as exc:
         logger.exception("Tool execution error for %s", name)
         result = {"error": str(exc)}
