@@ -665,7 +665,7 @@ def _search_fli(
 ) -> list[dict]:
     """
     Search ONE-WAY flights using the flights (fli) package — direct Google Flights API.
-    Returns results in the same format as the rest of ExpediRamp expects.
+    Returns results in the same format as the rest of Expediramp expects.
 
     IMPORTANT: The fli package returns the TOTAL price for all passengers
     (since we pass PassengerInfo(adults=passengers)). We must NOT multiply

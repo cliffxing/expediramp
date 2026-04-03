@@ -12,7 +12,7 @@ export default function Header({ onNewChat, onShowAuth }) {
         <div className="w-10 h-10 flex items-center justify-center overflow-hidden">
           <img
             src="/favicon.svg"
-            alt="ExpediRamp"
+          alt="Expediramp"
             className="w-16 h-16"
             style={{ transform: 'scale(1.35)', transformOrigin: 'center' }}
           />

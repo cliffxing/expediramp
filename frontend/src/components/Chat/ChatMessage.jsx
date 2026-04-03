@@ -21,7 +21,7 @@ export default function ChatMessage({ role, content, isStreaming, canDownloadPdf
         ) : (
           <img
             src="/favicon.svg"
-            alt="ExpediRamp"
+            alt="Expediramp"
             className="w-8 h-8 p-1.5"
             style={{ transform: 'scale(1.45)', transformOrigin: 'center' }}
           />
@@ -32,7 +32,7 @@ export default function ChatMessage({ role, content, isStreaming, canDownloadPdf
       <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
         <div className={`mb-1 flex items-center gap-2 ${isUser ? 'justify-end' : 'justify-between'}`}>
           <p className="text-2xs font-medium text-ramp-text-tertiary">
-            {isUser ? 'You' : 'ExpediRamp'}
+            {isUser ? 'You' : 'Expediramp'}
           </p>
           {!isUser && canDownloadPdf && (
             <button

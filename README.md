@@ -1,8 +1,8 @@
-# ExpediRamp
+# Expediramp
 
-> **Modern Travel Runs on ExpediRamp**
+> **Modern Travel Runs on Expediramp**
 
-ExpediRamp is an AI-powered travel planning web app. Describe your trip in plain English and the agent searches for real flights, hotels, and ground transportation, then builds a visual itinerary you can iterate on conversationally.
+Expediramp is an AI-powered travel planning web app. Describe your trip in plain English and the agent searches for real flights, hotels, and ground transportation, then builds a visual itinerary you can iterate on conversationally.
 
 ---
 

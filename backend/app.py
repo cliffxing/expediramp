@@ -1,5 +1,5 @@
 """
-ExpediRamp — Flask API server.
+Expediramp — Flask API server.
 
 Run with:
     python app.py
@@ -30,7 +30,7 @@ app.register_blueprint(auth_bp)
 
 @app.route("/api/health", methods=["GET"])
 def health():
-    return {"status": "ok", "service": "ExpediRamp API"}
+    return {"status": "ok", "service": "Expediramp API"}
 
 
 if __name__ == "__main__":

@@ -47,7 +47,7 @@ export default function AuthModal({ onClose }) {
           <div className="w-12 h-12 overflow-hidden mb-4">
             <img
               src="/favicon.svg"
-              alt="ExpediRamp"
+              alt="Expediramp"
               className="w-16 h-16"
               style={{ transform: 'scale(1.35)', transformOrigin: 'center' }}
             />
@@ -58,7 +58,7 @@ export default function AuthModal({ onClose }) {
           <p className="text-sm text-ramp-text-secondary mt-1">
             {mode === 'login'
               ? 'Sign in to save your trip plans.'
-              : 'Start planning trips with ExpediRamp.'}
+                : 'Start planning trips with Expediramp.'}
           </p>
         </div>
 

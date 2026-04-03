@@ -18,7 +18,7 @@ export default function WelcomeScreen({ onSuggestionClick }) {
       </div>
 
       <h2 className="text-3xl font-bold text-ramp-text text-center text-balance leading-tight">
-        Modern Travel Runs on ExpediRamp
+          Modern Travel Runs on Expediramp
       </h2>
       <p className="text-sm text-ramp-text-secondary mt-3 text-center max-w-md text-balance leading-relaxed">
         Describe your dream trip in plain English. Our AI agent finds the best flights,

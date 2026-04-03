@@ -65,7 +65,7 @@ export default function DemoGate({ children }) {
           <div className="w-11 h-11 overflow-hidden mb-5">
             <img
               src="/favicon.svg"
-              alt="ExpediRamp"
+              alt="Expediramp"
               className="w-[58px] h-[58px]"
               style={{ transform: 'scale(1.35)', transformOrigin: 'center' }}
             />
@@ -122,13 +122,13 @@ export default function DemoGate({ children }) {
             {loading ? (
               <><Loader2 size={13} className="animate-spin" />Verifying…</>
             ) : (
-              'Continue to ExpediRamp'
+                'Continue to Expediramp'
             )}
           </button>
         </form>
 
         <div className="border-t border-ramp-border px-7 py-3 flex items-center justify-between">
-          <span className="text-2xs text-ramp-text-tertiary">ExpediRamp · Private Demo</span>
+              <span className="text-2xs text-ramp-text-tertiary">Expediramp · Private Demo</span>
           <span className="text-2xs font-medium text-ramp-text-tertiary bg-ramp-surface-alt border border-ramp-border px-1.5 py-0.5">
             BETA
           </span>
@@ -136,7 +136,7 @@ export default function DemoGate({ children }) {
       </div>
 
       <p className="relative mt-6 text-xs text-ramp-text-tertiary tracking-wide">
-        Modern Travel Runs on ExpediRamp
+            Modern Travel Runs on Expediramp
       </p>
 
       <style>{`
