@@ -1,9 +1,9 @@
 import React from 'react';
-import { User } from 'lucide-react';
+import { Download, User } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-export default function ChatMessage({ role, content, isStreaming }) {
+export default function ChatMessage({ role, content, isStreaming, canDownloadPdf = false, onDownloadPdf }) {
   const isUser = role === 'user';
 
   return (
@@ -30,9 +30,22 @@ export default function ChatMessage({ role, content, isStreaming }) {
 
       {/* Bubble */}
       <div className={`max-w-[75%] ${isUser ? 'text-right' : ''}`}>
-        <p className="text-2xs font-medium text-ramp-text-tertiary mb-1">
-          {isUser ? 'You' : 'ExpediRamp'}
-        </p>
+        <div className={`mb-1 flex items-center gap-2 ${isUser ? 'justify-end' : 'justify-between'}`}>
+          <p className="text-2xs font-medium text-ramp-text-tertiary">
+            {isUser ? 'You' : 'ExpediRamp'}
+          </p>
+          {!isUser && canDownloadPdf && (
+            <button
+              type="button"
+              onClick={onDownloadPdf}
+              className="inline-flex items-center justify-center w-7 h-7 border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary transition-colors hover:bg-ramp-yellow hover:text-ramp-text"
+              aria-label="Download trip as PDF"
+              title="Download trip as PDF"
+            >
+              <Download size={13} />
+            </button>
+          )}
+        </div>
         <div
           className={`px-4 py-3 text-sm leading-relaxed
             ${isUser

@@ -17,6 +17,7 @@ function SmartTimeline({ itinerary }) {
 import AuthModal from './components/Auth/AuthModal';
 import { useAuth } from './context/AuthContext';
 import { sendMessageStream, createConversation, getConversationMessages } from './api/client';
+import { downloadItineraryPdf } from './lib/pdf';
 
 const DAILY_ITINERARY_CONFIRMATION =
   'Yes, build me a day-by-day itinerary with things to do each day.';
@@ -127,6 +128,11 @@ export default function App() {
     setConversationId(null);
     setDismissedPromptKey(null);
   };
+
+  const handleDownloadPdf = useCallback((message) => {
+    if (!message?.itinerary) return;
+    downloadItineraryPdf(message.itinerary, message.content || '');
+  }, []);
 
   const handleSelectConversation = async (convo) => {
     setLoadingConvo(true);
@@ -357,7 +363,12 @@ export default function App() {
 
                     return (
                       <React.Fragment key={idx}>
-                        <ChatMessage role={msg.role} content={msg.content} />
+                        <ChatMessage
+                          role={msg.role}
+                          content={msg.content}
+                          canDownloadPdf={Boolean(msg.itinerary)}
+                          onDownloadPdf={() => handleDownloadPdf(msg)}
+                        />
 
                         {/* Itinerary renders first so the prompt appears below it */}
                         {msg.itinerary && (
