@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { MapPin, Plus, Loader2, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { MapPin, Plus, Loader2, Clock, ChevronLeft, ChevronRight, Search } from 'lucide-react';
 import { getConversations } from '../../api/client';
 
 export default function Sidebar({ token, activeConversationId, onSelect, onNewChat }) {
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     if (!token) return;
@@ -14,6 +15,17 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [token, activeConversationId]);
+
+  const filteredConversations = useMemo(() => {
+    const normalized = searchQuery.trim().toLowerCase();
+    if (!normalized) return conversations;
+
+    const keywords = normalized.split(/\s+/).filter(Boolean);
+    return conversations.filter((conversation) => {
+      const title = (conversation.title || '').toLowerCase();
+      return keywords.every((keyword) => title.includes(keyword));
+    });
+  }, [conversations, searchQuery]);
 
   return (
     <aside
@@ -46,8 +58,21 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
 
       {/* Nav section label */}
       {!collapsed && (
-        <div className="px-3 pt-3 pb-1">
+        <div className="px-3 pt-3 pb-1 space-y-3">
           <p className="text-[10px] uppercase tracking-widest text-ramp-text-tertiary font-semibold">My Trips</p>
+          <label className="relative block">
+            <Search
+              size={12}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ramp-text-tertiary pointer-events-none"
+            />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search first prompt"
+              className="w-full border border-ramp-border bg-ramp-surface pl-8 pr-3 py-2 text-xs text-ramp-text placeholder:text-ramp-text-tertiary focus:outline-none focus:border-ramp-text"
+            />
+          </label>
         </div>
       )}
 
@@ -61,8 +86,12 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
           <div className="px-3 mt-3">
             <p className="text-xs text-ramp-text-tertiary">No trips yet. Start planning!</p>
           </div>
+        ) : filteredConversations.length === 0 && !collapsed ? (
+          <div className="px-3 mt-3">
+            <p className="text-xs text-ramp-text-tertiary">No trips match those first-prompt keywords.</p>
+          </div>
         ) : (
-          conversations.map((c) => {
+          filteredConversations.map((c) => {
             const isActive = activeConversationId === c.id;
             return (
               <button
