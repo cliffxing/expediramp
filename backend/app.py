@@ -22,7 +22,21 @@ logging.basicConfig(
 app = Flask(__name__)
 app.config.from_object(Config)
 
-CORS(app, origins=[Config.FRONTEND_URL, "http://localhost:5173", "http://localhost:3000", "http://localhost:5001"])
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": [
+                Config.FRONTEND_URL,
+                "http://localhost:5173",
+                "http://localhost:3000",
+                "http://localhost:5001",
+            ]
+        }
+    },
+    methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+)
 
 app.register_blueprint(chat_bp)
 app.register_blueprint(auth_bp)
