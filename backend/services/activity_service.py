@@ -122,7 +122,7 @@ def _search_serpapi_activities(city: str, num_results: int = 5) -> list[dict]:
         raise ValueError("SERPAPI_KEY not set")
 
     params = {
-        "engine": "google_search",
+        "engine": "google",
         "q": f"top things to do in {city} tourist attractions must visit",
         "num": 10,
         "hl": "en",
