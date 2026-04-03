@@ -6,7 +6,6 @@ import {
   signOut,
 } from 'firebase/auth';
 
-import * as api from '../api/client';
 import { auth, persistenceReady } from '../lib/firebase';
 
 const AuthContext = createContext(null);
@@ -55,10 +54,9 @@ export function AuthProvider({ children }) {
 
           try {
             const idToken = await firebaseUser.getIdToken();
-            const data = await api.getMe(idToken);
             if (!isMounted) return;
             setToken(idToken);
-            setUser(data.user);
+            setUser({ id: firebaseUser.uid, email: firebaseUser.email });
           } catch {
             if (!isMounted) return;
             setToken(await firebaseUser.getIdToken());

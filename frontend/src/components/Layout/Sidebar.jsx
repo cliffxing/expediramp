@@ -43,7 +43,13 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      setConversations([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     getConversations(token)
       .then((data) => setConversations(data.conversations || []))
       .catch(console.error)

@@ -5,6 +5,7 @@ Travel planning agent powered by OpenAI function calling.
 import json
 import logging
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 from config import Config
 from agents.tools import TOOLS, SYSTEM_PROMPT
@@ -18,6 +19,7 @@ logger = logging.getLogger(__name__)
 client = OpenAI(api_key=Config.OPENAI_API_KEY)
 MODEL = "gpt-4o"
 MAX_TOOL_ROUNDS = 8
+MAX_PARALLEL_TOOL_CALLS = 4
 
 def _get_system_prompt():
     """Inject the current date so the AI never searches in the past."""
@@ -41,11 +43,30 @@ def _execute_tool(name: str, arguments: dict) -> str:
         elif name == "build_itinerary":
             result = arguments.get("itinerary", arguments)
         else:
-            result = {"error": f"Unknown tool: {name}"}
+        result = {"error": f"Unknown tool: {name}"}
     except Exception as exc:
         logger.exception("Tool execution error for %s", name)
         result = {"error": str(exc)}
     return json.dumps(result, default=str)
+
+
+def _run_tool_batch(tool_calls: list[dict]) -> list[tuple[dict, str, dict]]:
+    if not tool_calls:
+        return []
+
+    def run_single(tc: dict):
+        fn_name = tc["function"]["name"]
+        try:
+            fn_args = json.loads(tc["function"]["arguments"])
+        except json.JSONDecodeError:
+            fn_args = {}
+        logger.info("Calling tool %s", fn_name)
+        return tc, fn_name, fn_args, _execute_tool(fn_name, fn_args)
+
+    worker_count = min(len(tool_calls), MAX_PARALLEL_TOOL_CALLS)
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = [executor.submit(run_single, tc) for tc in tool_calls]
+        return [future.result() for future in futures]
 
 
 def run_agent(conversation_history: list[dict]) -> dict:
@@ -73,20 +94,26 @@ def run_agent(conversation_history: list[dict]) -> dict:
 
         if not assistant_msg.tool_calls: break
 
-        for tc in assistant_msg.tool_calls:
-            fn_name = tc.function.name
-            try: fn_args = json.loads(tc.function.arguments)
-            except json.JSONDecodeError: fn_args = {}
+        normalized_tool_calls = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in assistant_msg.tool_calls
+        ]
 
-            logger.info("Calling tool %s", fn_name)
+        for tc, fn_name, fn_args, result_str in _run_tool_batch(normalized_tool_calls):
             tool_names_called.append(fn_name)
-            result_str = _execute_tool(fn_name, fn_args)
 
             if fn_name == "build_itinerary" or fn_name == "build_daily_itinerary":
                 try: itinerary_data = json.loads(result_str)
                 except Exception: itinerary_data = fn_args.get("itinerary", fn_args)
 
-            messages.append({"role": "tool", "tool_call_id": tc.id, "content": result_str})
+            messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result_str})
 
     return {
         "reply": messages[-1].get("content", "") if messages[-1]["role"] == "assistant" else "",
@@ -139,15 +166,28 @@ def run_agent_streaming(conversation_history: list[dict]):
 
         if not collected_tool_calls: break
 
-        for tc in collected_tool_calls.values():
-            fn_name = tc["name"]
-            try: fn_args = json.loads(tc["arguments"])
-            except json.JSONDecodeError: fn_args = {}
+        normalized_tool_calls = [
+            {
+                "id": tc["id"],
+                "type": "function",
+                "function": {
+                    "name": tc["name"],
+                    "arguments": tc["arguments"],
+                },
+            }
+            for tc in collected_tool_calls.values()
+        ]
 
+        for tc in normalized_tool_calls:
+            fn_name = tc["function"]["name"]
+            try:
+                fn_args = json.loads(tc["function"]["arguments"])
+            except json.JSONDecodeError:
+                fn_args = {}
             tool_names_called.append(fn_name)
             yield {"type": "tool_start", "data": {"tool": fn_name, "args": fn_args}}
 
-            result_str = _execute_tool(fn_name, fn_args)
+        for tc, fn_name, fn_args, result_str in _run_tool_batch(normalized_tool_calls):
 
             if fn_name == "build_itinerary" or fn_name == "build_daily_itinerary":
                 try: itinerary_data = json.loads(result_str)
