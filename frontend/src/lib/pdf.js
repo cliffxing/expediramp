@@ -52,76 +52,93 @@ function formatDuration(minutes) {
   return `${mins}m`;
 }
 
-function sanitizeText(value = '') {
+function escapeHtml(value = '') {
   return String(value)
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/[–—]/g, '-')
-    .replace(/…/g, '...')
-    .replace(/→/g, ' -> ')
-    .replace(/•/g, '- ')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function normalizeContent(value = '') {
+  return String(value)
+    .replace(/\[CURRENT_ITINERARY:[\s\S]*$/g, '')
+    .replace(/\[FULL_ITINERARY_JSON:[\s\S]*$/g, '')
+    .replace(/\r\n/g, '\n')
     .trim();
 }
 
-function escapePdfText(value = '') {
-  return sanitizeText(value)
-    .replace(/\\/g, '\\\\')
-    .replace(/\(/g, '\\(')
-    .replace(/\)/g, '\\)');
-}
+function markdownToHtml(markdown = '') {
+  const normalized = normalizeContent(markdown);
+  if (!normalized) return '';
 
-function wrapText(text, maxChars) {
-  const clean = sanitizeText(text);
-  if (!clean) return [''];
+  const lines = normalized.split('\n');
+  const html = [];
+  let listOpen = false;
 
-  const paragraphs = clean.split(/\r?\n+/);
-  const lines = [];
+  const closeList = () => {
+    if (listOpen) {
+      html.push('</ul>');
+      listOpen = false;
+    }
+  };
 
-  for (const paragraph of paragraphs) {
-    const words = paragraph.split(/\s+/).filter(Boolean);
-    if (!words.length) {
-      lines.push('');
+  const inlineFormat = (text) => {
+    let formatted = escapeHtml(text);
+    formatted = formatted.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2">$1</a>');
+    formatted = formatted.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    formatted = formatted.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+    return formatted;
+  };
+
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) {
+      closeList();
       continue;
     }
 
-    let current = '';
-    for (const word of words) {
-      const candidate = current ? `${current} ${word}` : word;
-      if (candidate.length <= maxChars) {
-        current = candidate;
-        continue;
-      }
-
-      if (current) {
-        lines.push(current);
-      }
-
-      if (word.length <= maxChars) {
-        current = word;
-        continue;
-      }
-
-      let remainder = word;
-      while (remainder.length > maxChars) {
-        lines.push(remainder.slice(0, maxChars - 1) + '-');
-        remainder = remainder.slice(maxChars - 1);
-      }
-      current = remainder;
+    if (line.startsWith('### ')) {
+      closeList();
+      html.push(`<h3>${inlineFormat(line.slice(4))}</h3>`);
+      continue;
     }
 
-    if (current) {
-      lines.push(current);
+    if (line.startsWith('## ')) {
+      closeList();
+      html.push(`<h2>${inlineFormat(line.slice(3))}</h2>`);
+      continue;
     }
+
+    if (line.startsWith('# ')) {
+      closeList();
+      html.push(`<h1>${inlineFormat(line.slice(2))}</h1>`);
+      continue;
+    }
+
+    if (/^[-*]\s+/.test(line)) {
+      if (!listOpen) {
+        html.push('<ul>');
+        listOpen = true;
+      }
+      html.push(`<li>${inlineFormat(line.replace(/^[-*]\s+/, ''))}</li>`);
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${inlineFormat(line)}</p>`);
   }
 
-  return lines.length ? lines : [''];
+  closeList();
+  return html.join('');
 }
 
-function buildFlightSummary(item) {
+function buildFlightLines(item) {
   const details = item.details || {};
   const isRoundTrip = details.is_round_trip || details.trip_type === 'round_trip';
+  const lines = [];
 
   if (isRoundTrip) {
     const outboundSegments = details.outbound_segments || [];
@@ -131,289 +148,368 @@ function buildFlightSummary(item) {
     const returnStart = returnSegments[0];
     const returnEnd = returnSegments[returnSegments.length - 1];
 
-    const summary = [];
     if (outboundStart && outboundEnd) {
-      summary.push(
-        `Outbound: ${outboundStart.origin || 'TBD'} -> ${outboundEnd.destination || 'TBD'} | ${formatTime(outboundStart.departure_time)} to ${formatTime(outboundEnd.arrival_time)}`
-      );
+      lines.push({
+        label: 'Outbound',
+        value: `${outboundStart.origin || 'TBD'} -> ${outboundEnd.destination || 'TBD'} | ${formatTime(outboundStart.departure_time)} to ${formatTime(outboundEnd.arrival_time)}`,
+      });
     }
     if (returnStart && returnEnd) {
-      summary.push(
-        `Return: ${returnStart.origin || 'TBD'} -> ${returnEnd.destination || 'TBD'} | ${formatTime(returnStart.departure_time)} to ${formatTime(returnEnd.arrival_time)}`
-      );
+      lines.push({
+        label: 'Return',
+        value: `${returnStart.origin || 'TBD'} -> ${returnEnd.destination || 'TBD'} | ${formatTime(returnStart.departure_time)} to ${formatTime(returnEnd.arrival_time)}`,
+      });
     }
     if (details.outbound_duration_minutes || details.return_duration_minutes) {
-      summary.push(
-        `Travel time: ${[
+      lines.push({
+        label: 'Travel time',
+        value: [
           details.outbound_duration_minutes ? `outbound ${formatDuration(details.outbound_duration_minutes)}` : null,
           details.return_duration_minutes ? `return ${formatDuration(details.return_duration_minutes)}` : null,
-        ].filter(Boolean).join(' | ')}`
-      );
+        ].filter(Boolean).join(' | '),
+      });
     }
-    return summary;
+
+    return lines;
   }
 
   const segments = details.segments || [];
   const first = segments[0];
   const last = segments[segments.length - 1];
-  const summary = [];
-
   if (first && last) {
-    summary.push(
-      `Route: ${first.origin || 'TBD'} -> ${last.destination || 'TBD'} | ${formatTime(first.departure_time)} to ${formatTime(last.arrival_time)}`
-    );
+    lines.push({
+      label: 'Route',
+      value: `${first.origin || 'TBD'} -> ${last.destination || 'TBD'} | ${formatTime(first.departure_time)} to ${formatTime(last.arrival_time)}`,
+    });
   }
   if (details.total_duration_minutes) {
-    summary.push(`Travel time: ${formatDuration(details.total_duration_minutes)}`);
+    lines.push({ label: 'Travel time', value: formatDuration(details.total_duration_minutes) });
   }
-  return summary;
+
+  return lines;
 }
 
-function buildHotelSummary(item) {
+function buildHotelLines(item) {
   const details = item.details || {};
-  const parts = [];
-  if (item.subtitle) parts.push(item.subtitle);
-  if (details.nights) parts.push(`${details.nights} night${details.nights === 1 ? '' : 's'}`);
-  if (details.room_type) parts.push(details.room_type);
-  if (details.rating) parts.push(`${details.rating} star`);
-  return parts.length ? [`Stay details: ${parts.join(' | ')}`] : [];
+  const values = [];
+  if (item.subtitle) values.push(item.subtitle);
+  if (details.nights) values.push(`${details.nights} night${details.nights === 1 ? '' : 's'}`);
+  if (details.room_type) values.push(details.room_type);
+  if (details.rating) values.push(`${details.rating} star`);
+  return values.length ? [{ label: 'Stay', value: values.join(' | ') }] : [];
 }
 
-function buildActivitySummary(item) {
+function buildActivityLines(item) {
   const details = item.details || {};
-  const parts = [];
-  if (item.subtitle) parts.push(item.subtitle);
-  if (details.city) parts.push(details.city);
-  if (details.category) parts.push(details.category);
-  if (details.description) parts.push(details.description);
-  return parts.length ? [parts.join(' | ')] : [];
+  const lines = [];
+  if (item.subtitle) lines.push({ label: 'Plan', value: item.subtitle });
+  if (details.city) lines.push({ label: 'City', value: details.city });
+  if (details.category) lines.push({ label: 'Category', value: details.category });
+  if (details.description) lines.push({ label: 'Notes', value: details.description });
+  return lines;
 }
 
-function itineraryToDocumentSections(itinerary, assistantContent = '') {
+function buildItemCards(itinerary) {
+  const items = Array.isArray(itinerary?.items) ? itinerary.items : [];
+  return items.map((item, index) => {
+    const cost = formatCurrency(item.cost, item);
+    const common = [];
+    if (item.date) common.push({ label: 'Date', value: formatDate(item.date, { month: 'long', day: 'numeric', year: 'numeric' }) });
+    if (cost) common.push({ label: 'Estimated cost', value: cost });
+    if (item.booking_url) common.push({ label: 'Booking link', value: item.booking_url, isLink: true });
+
+    const typeSpecific =
+      item.type === 'flight' ? buildFlightLines(item) :
+      item.type === 'hotel' ? buildHotelLines(item) :
+      buildActivityLines(item);
+
+    const rows = [...common, ...typeSpecific]
+      .map((row) => {
+        const value = row.isLink
+          ? `<a href="${escapeHtml(row.value)}">${escapeHtml(row.value)}</a>`
+          : escapeHtml(row.value);
+        return `<div class="detail-row"><div class="detail-label">${escapeHtml(row.label)}</div><div class="detail-value">${value}</div></div>`;
+      })
+      .join('');
+
+    return `
+      <section class="trip-card">
+        <div class="card-top">
+          <div>
+            <div class="eyebrow">${escapeHtml(`${index + 1}. ${item.type || 'item'}`)}</div>
+            <h3>${escapeHtml(item.title || 'Untitled item')}</h3>
+          </div>
+        </div>
+        <div class="card-body">
+          ${rows || '<p class="muted">No additional details available.</p>'}
+        </div>
+      </section>
+    `;
+  }).join('');
+}
+
+function buildPrintableHtml(itinerary, assistantContent = '') {
   const items = Array.isArray(itinerary?.items) ? itinerary.items : [];
   const destinations = Array.isArray(itinerary?.destinations) ? itinerary.destinations : [];
-  const filteredContent = sanitizeText(
-    assistantContent
-      .replace(/\[CURRENT_ITINERARY:[\s\S]*$/g, '')
-      .replace(/\[FULL_ITINERARY_JSON:[\s\S]*$/g, '')
-  );
-
   const totalCost = items.reduce(
     (sum, item) => sum + (item.type === 'transit' ? 0 : Number(item.cost || 0)),
     0
   );
+  const summaryHtml = markdownToHtml(assistantContent);
 
-  const sections = [
-    { type: 'title', text: itinerary.trip_title || 'Trip plan' },
-    {
-      type: 'meta',
-      text: `${formatDate(itinerary.start_date)} - ${formatDate(itinerary.end_date)} | ${itinerary.travelers || 1} traveler${itinerary.travelers === 1 ? '' : 's'}`,
-    },
-  ];
+  return `
+    <!doctype html>
+    <html lang="en">
+      <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${escapeHtml(itinerary.trip_title || 'Trip plan')}</title>
+        <style>
+          :root {
+            --ink: #161616;
+            --muted: #5f5f5f;
+            --line: #dddddd;
+            --surface: #ffffff;
+            --surface-alt: #f6f6ef;
+            --accent: #d9f23f;
+          }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            color: var(--ink);
+            background: #ecebe4;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            line-height: 1.45;
+          }
+          .page {
+            width: 8.5in;
+            margin: 0 auto;
+            background: var(--surface);
+            padding: 0.7in;
+          }
+          .hero {
+            border: 1px solid var(--line);
+            background: linear-gradient(135deg, #fbfbf8 0%, #f3f2e8 100%);
+            padding: 28px;
+            margin-bottom: 28px;
+          }
+          .hero h1 {
+            margin: 0 0 10px;
+            font-size: 28px;
+            line-height: 1.15;
+          }
+          .hero-meta {
+            color: var(--muted);
+            font-size: 14px;
+          }
+          .stats {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+          }
+          .stat {
+            border: 1px solid var(--line);
+            background: rgba(255,255,255,0.75);
+            padding: 12px 14px;
+          }
+          .stat-label {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+          }
+          .stat-value {
+            font-size: 16px;
+            font-weight: 700;
+          }
+          .section-title {
+            display: inline-block;
+            margin: 20px 0 14px;
+            padding: 6px 10px;
+            background: var(--accent);
+            font-size: 12px;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+          }
+          .summary {
+            margin-bottom: 28px;
+          }
+          .summary p,
+          .summary li {
+            font-size: 14px;
+            margin: 0 0 10px;
+          }
+          .summary ul {
+            margin: 0 0 12px 18px;
+            padding: 0;
+          }
+          .summary h1,
+          .summary h2,
+          .summary h3 {
+            margin: 18px 0 10px;
+            font-size: 18px;
+          }
+          .summary a,
+          .detail-value a {
+            color: #0f5cc0;
+            text-decoration: underline;
+            word-break: break-word;
+          }
+          .trip-card {
+            border: 1px solid var(--line);
+            margin-bottom: 16px;
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+          .card-top {
+            padding: 16px 18px 10px;
+            border-bottom: 1px solid var(--line);
+            background: var(--surface-alt);
+          }
+          .eyebrow {
+            color: var(--muted);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 6px;
+          }
+          .card-top h3 {
+            margin: 0;
+            font-size: 20px;
+            line-height: 1.2;
+          }
+          .card-body {
+            padding: 14px 18px 18px;
+          }
+          .detail-row {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 12px;
+            padding: 8px 0;
+            border-bottom: 1px solid #efefef;
+          }
+          .detail-row:last-child {
+            border-bottom: 0;
+            padding-bottom: 0;
+          }
+          .detail-label {
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+          }
+          .detail-value {
+            font-size: 14px;
+            word-break: break-word;
+          }
+          .muted {
+            color: var(--muted);
+            margin: 0;
+          }
+          @page {
+            margin: 0.45in;
+            size: letter;
+          }
+          @media print {
+            body {
+              background: white;
+            }
+            .page {
+              width: auto;
+              margin: 0;
+              padding: 0;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <main class="page">
+          <section class="hero">
+            <h1>${escapeHtml(itinerary.trip_title || 'Trip plan')}</h1>
+            <div class="hero-meta">
+              ${escapeHtml(`${formatDate(itinerary.start_date, { month: 'long', day: 'numeric', year: 'numeric' })} - ${formatDate(itinerary.end_date, { month: 'long', day: 'numeric', year: 'numeric' })} | ${itinerary.travelers || 1} traveler${itinerary.travelers === 1 ? '' : 's'}`)}
+            </div>
+            <div class="stats">
+              <div class="stat">
+                <div class="stat-label">Destinations</div>
+                <div class="stat-value">${escapeHtml(destinations.join(' -> ') || 'TBD')}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Items</div>
+                <div class="stat-value">${escapeHtml(String(items.length))}</div>
+              </div>
+              <div class="stat">
+                <div class="stat-label">Estimated total</div>
+                <div class="stat-value">${escapeHtml(formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' }) || 'TBD')}</div>
+              </div>
+            </div>
+          </section>
 
-  if (destinations.length) {
-    sections.push({ type: 'body', text: `Destinations: ${destinations.join(' -> ')}` });
-  }
+          ${summaryHtml ? `
+            <section class="summary">
+              <div class="section-title">Trip Summary</div>
+              ${summaryHtml}
+            </section>
+          ` : ''}
 
-  sections.push({
-    type: 'body',
-    text: `Estimated total: ${formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' }) || 'TBD'}`,
-  });
-
-  if (filteredContent) {
-    sections.push({ type: 'section', text: 'Trip Summary' });
-    for (const paragraph of filteredContent.split(/\r?\n+/).filter(Boolean)) {
-      sections.push({ type: 'body', text: paragraph });
-    }
-  }
-
-  sections.push({ type: 'section', text: 'Trip Details' });
-
-  items.forEach((item, index) => {
-    const cost = formatCurrency(item.cost, item);
-    const headingParts = [
-      `${index + 1}. ${(item.type || 'item').toUpperCase()}`,
-      item.title || 'Untitled item',
-    ];
-    if (item.date) headingParts.push(`(${formatDate(item.date, { month: 'short', day: 'numeric', year: 'numeric' })})`);
-    sections.push({ type: 'itemHeading', text: headingParts.join(' ') });
-
-    const detailRows = [];
-    if (cost) detailRows.push(`Estimated cost: ${cost}`);
-    if (item.booking_url) detailRows.push(`Booking link: ${item.booking_url}`);
-
-    if (item.type === 'flight') {
-      detailRows.push(...buildFlightSummary(item));
-    } else if (item.type === 'hotel') {
-      detailRows.push(...buildHotelSummary(item));
-    } else {
-      detailRows.push(...buildActivitySummary(item));
-    }
-
-    if (!detailRows.length) {
-      detailRows.push('No additional details available.');
-    }
-
-    detailRows.forEach((row) => sections.push({ type: 'body', text: row }));
-  });
-
-  return sections;
-}
-
-function buildPages(sections) {
-  const pageWidth = 612;
-  const pageHeight = 792;
-  const marginX = 54;
-  const top = 738;
-  const bottom = 54;
-  let cursorY = top;
-  let currentPage = [];
-  const pages = [currentPage];
-
-  const pushLine = (text, options = {}) => {
-    const size = options.size || 11;
-    const leading = options.leading || size + 4;
-    const font = options.font || 'F1';
-    const maxChars = options.maxChars || 92;
-    const wrapped = wrapText(text, maxChars);
-
-    for (const line of wrapped) {
-      if (cursorY - leading < bottom) {
-        currentPage = [];
-        pages.push(currentPage);
-        cursorY = top;
-      }
-
-      currentPage.push({
-        text: line,
-        x: marginX,
-        y: cursorY,
-        size,
-        font,
-      });
-      cursorY -= leading;
-    }
-  };
-
-  const addGap = (amount = 10) => {
-    cursorY -= amount;
-    if (cursorY < bottom) {
-      currentPage = [];
-      pages.push(currentPage);
-      cursorY = top;
-    }
-  };
-
-  for (const section of sections) {
-    if (section.type === 'title') {
-      pushLine(section.text, { font: 'F2', size: 20, leading: 28, maxChars: 48 });
-      addGap(8);
-      continue;
-    }
-
-    if (section.type === 'meta') {
-      pushLine(section.text, { size: 11, leading: 16, maxChars: 78 });
-      addGap(10);
-      continue;
-    }
-
-    if (section.type === 'section') {
-      addGap(6);
-      pushLine(section.text, { font: 'F2', size: 14, leading: 20, maxChars: 60 });
-      addGap(2);
-      continue;
-    }
-
-    if (section.type === 'itemHeading') {
-      addGap(4);
-      pushLine(section.text, { font: 'F2', size: 12, leading: 18, maxChars: 74 });
-      continue;
-    }
-
-    pushLine(section.text, { size: 11, leading: 15, maxChars: 90 });
-  }
-
-  return { pages, pageWidth, pageHeight };
-}
-
-function buildPdfBlob(pages, pageWidth, pageHeight) {
-  const objects = [];
-
-  const setObject = (index, value) => {
-    objects[index - 1] = value;
-  };
-
-  const addObject = (value) => {
-    objects.push(value);
-    return objects.length;
-  };
-
-  const catalogId = addObject('');
-  const pagesId = addObject('');
-  const fontRegularId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>');
-  const fontBoldId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>');
-
-  const pageIds = [];
-
-  pages.forEach((page) => {
-    const stream = [
-      'BT',
-      ...page.map((line) =>
-        `/${line.font} ${line.size} Tf 1 0 0 1 ${line.x} ${line.y} Tm (${escapePdfText(line.text)}) Tj`
-      ),
-      'ET',
-    ].join('\n');
-
-    const contentId = addObject(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
-    const pageId = addObject(
-      `<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> >> /Contents ${contentId} 0 R >>`
-    );
-    pageIds.push(pageId);
-  });
-
-  setObject(pagesId, `<< /Type /Pages /Count ${pageIds.length} /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] >>`);
-  setObject(catalogId, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
-
-  let pdf = '%PDF-1.4\n%\xE2\xE3\xCF\xD3\n';
-  const offsets = [0];
-
-  for (let index = 0; index < objects.length; index += 1) {
-    offsets.push(pdf.length);
-    pdf += `${index + 1} 0 obj\n${objects[index]}\nendobj\n`;
-  }
-
-  const xrefStart = pdf.length;
-  pdf += `xref\n0 ${objects.length + 1}\n`;
-  pdf += '0000000000 65535 f \n';
-
-  for (let index = 1; index < offsets.length; index += 1) {
-    pdf += `${String(offsets[index]).padStart(10, '0')} 00000 n \n`;
-  }
-
-  pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefStart}\n%%EOF`;
-
-  return new Blob([pdf], { type: 'application/pdf' });
-}
-
-function buildFilename(itinerary) {
-  const raw = sanitizeText(itinerary.trip_title || 'trip-plan').toLowerCase();
-  const slug = raw
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60);
-  return `${slug || 'trip-plan'}.pdf`;
+          <section>
+            <div class="section-title">Trip Details</div>
+            ${buildItemCards(itinerary)}
+          </section>
+        </main>
+      </body>
+    </html>
+  `;
 }
 
 export function downloadItineraryPdf(itinerary, assistantContent = '') {
-  const sections = itineraryToDocumentSections(itinerary, assistantContent);
-  const { pages, pageWidth, pageHeight } = buildPages(sections);
-  const blob = buildPdfBlob(pages, pageWidth, pageHeight);
-  const url = URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = buildFilename(itinerary);
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  const html = buildPrintableHtml(itinerary, assistantContent);
+  const iframe = document.createElement('iframe');
+  iframe.setAttribute('aria-hidden', 'true');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+
+  document.body.appendChild(iframe);
+
+  const cleanup = () => {
+    setTimeout(() => {
+      iframe.remove();
+    }, 500);
+  };
+
+  const printFrame = iframe.contentWindow;
+  if (!printFrame) {
+    cleanup();
+    return;
+  }
+
+  const frameDocument = printFrame.document;
+  frameDocument.open();
+  frameDocument.write(html);
+  frameDocument.close();
+  frameDocument.title = `${itinerary?.trip_title || 'Trip plan'} PDF`;
+
+  const triggerPrint = () => {
+    printFrame.focus();
+    printFrame.print();
+  };
+
+  printFrame.onafterprint = cleanup;
+  iframe.onload = () => {
+    setTimeout(triggerPrint, 150);
+  };
+
+  setTimeout(() => {
+    if (document.body.contains(iframe)) {
+      triggerPrint();
+    }
+  }, 400);
 }
