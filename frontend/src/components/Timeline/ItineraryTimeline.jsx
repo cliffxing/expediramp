@@ -1,38 +1,50 @@
 import React, { useState } from 'react';
 import {
   Plane, Hotel, Train, Navigation, MapPin, Calendar, Users,
-  ChevronDown, ChevronUp, ExternalLink, Clock, Star, RotateCcw,
+  ChevronDown, ChevronUp, Clock, Star, ExternalLink, Link2Off,
+  Utensils, Landmark, TreePine, Moon, Sun, Coffee, Sunset,
 } from 'lucide-react';
 
 // ── Formatters ────────────────────────────────────────────────
 
 function formatCurrency(amount, item = {}) {
-  if (amount === null || amount === undefined) return '—';
-  const symbol = item.currency_symbol || '$';
-  const code   = item.currency_code   || 'USD';
-  if (symbol !== '$') return `${symbol}${Math.round(amount).toLocaleString()}`;
-  if (code   !== 'USD') return `${symbol}${Math.round(amount).toLocaleString()} ${code}`;
-  return `$${Math.round(amount).toLocaleString()}`;
+  if (!amount && amount !== 0) return '';
+  const symbol = item.currency_symbol || item.details?.currency_symbol || '$';
+  const code   = item.currency_code   || item.details?.currency_code   || 'USD';
+  if (code === 'USD' || symbol === '$') {
+    return `$${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  }
+  return `${symbol}${Number(amount).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${code}`;
 }
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
   try {
-    const d = new Date(dateStr + (dateStr.includes('T') ? '' : 'T00:00:00'));
-    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+  } catch { return dateStr; }
+}
+
+function formatDateShort(dateStr) {
+  if (!dateStr) return '';
+  try {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   } catch { return dateStr; }
 }
 
 function formatTime(dateTimeStr) {
   if (!dateTimeStr) return '';
   try {
-    if (dateTimeStr.includes('T') || dateTimeStr.match(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/)) {
-      const d = new Date(dateTimeStr.replace(' ', 'T'));
-      let hours   = d.getHours();
-      let minutes = String(d.getMinutes()).padStart(2, '0');
-      const ampm  = hours >= 12 ? 'PM' : 'AM';
-      hours = hours % 12 || 12;
-      return `${hours}:${minutes} ${ampm}`;
+    if (dateTimeStr.includes('T') || (dateTimeStr.includes('-') && dateTimeStr.length > 10)) {
+      const d = new Date(dateTimeStr);
+      if (!isNaN(d)) {
+        let hours = d.getHours();
+        const minutes = String(d.getMinutes()).padStart(2, '0');
+        const ampm = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        return `${hours}:${minutes} ${ampm}`;
+      }
     }
     if (/^\d{2}:\d{2}$/.test(dateTimeStr)) {
       let [h, m] = dateTimeStr.split(':').map(Number);
@@ -56,6 +68,46 @@ function getTotalCostUSD(items, itineraryTotal) {
   return items.reduce((sum, i) => sum + (i.cost || 0), 0);
 }
 
+// ── Time slot parsing ─────────────────────────────────────────
+
+const TIME_SLOT_MAP = {
+  breakfast:        { label: '8:00 AM',  icon: Coffee  },
+  morning:          { label: '9:30 AM',  icon: Sun     },
+  'late morning':   { label: '11:00 AM', icon: Sun     },
+  midday:           { label: '12:00 PM', icon: Sun     },
+  lunch:            { label: '12:30 PM', icon: Utensils },
+  afternoon:        { label: '2:00 PM',  icon: Sunset  },
+  'late afternoon': { label: '4:00 PM',  icon: Sunset  },
+  dinner:           { label: '7:00 PM',  icon: Utensils },
+  evening:          { label: '7:30 PM',  icon: Moon    },
+  night:            { label: '9:30 PM',  icon: Moon    },
+  nightlife:        { label: '10:00 PM', icon: Moon    },
+};
+
+function parseTimeSlot(subtitle = '') {
+  const lower = subtitle.toLowerCase();
+  for (const [key, val] of Object.entries(TIME_SLOT_MAP)) {
+    if (lower.startsWith(key) || lower.includes(`· ${key}`) || lower.includes(`- ${key}`)) {
+      return val;
+    }
+  }
+  // category fallbacks
+  if (lower.includes('food') || lower.includes('restaurant') || lower.includes('café') || lower.includes('cafe') || lower.includes('eat')) {
+    return TIME_SLOT_MAP['lunch'];
+  }
+  return null;
+}
+
+// ── Category icon map ─────────────────────────────────────────
+
+function getCategoryIcon(category = '') {
+  const c = category.toLowerCase();
+  if (c.includes('food') || c.includes('restaurant') || c.includes('eat') || c.includes('cafe') || c.includes('dining')) return Utensils;
+  if (c.includes('park') || c.includes('garden') || c.includes('nature') || c.includes('beach')) return TreePine;
+  if (c.includes('night') || c.includes('bar') || c.includes('club')) return Moon;
+  return Landmark;
+}
+
 // ── Icon map ──────────────────────────────────────────────────
 
 const TYPE_ICONS = {
@@ -65,12 +117,33 @@ const TYPE_ICONS = {
   activity: Navigation,
 };
 
+// ── URL validator ────────────────────────────────────────────
+// Returns the href only if it looks like a real, navigable http(s) URL.
+// Rejects: empty strings, relative paths, Quora/Reddit/forum links,
+// and anything that isn't a proper web address.
+const JUNK_DOMAINS = [
+  'quora.com', 'reddit.com', 'tripadvisor.com', 'yahoo.com',
+  'answers.com', 'ask.com', 'wikitravel.org', 'wikivoyage.org',
+  'lonelyplanet.com', 'expat.com',
+];
+function safeHref(url) {
+  if (!url || typeof url !== 'string') return null;
+  const trimmed = url.trim();
+  if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) return null;
+  try {
+    const host = new URL(trimmed).hostname.replace(/^www\./, '');
+    if (JUNK_DOMAINS.some(d => host === d || host.endsWith('.' + d))) return null;
+  } catch { return null; }
+  return trimmed;
+}
+
 // ── Shared card wrapper ───────────────────────────────────────
 
 function CardWrapper({ href, children, className = '' }) {
   const base = `group block bg-ramp-surface border border-ramp-border shadow-ramp
                 hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 ${className}`;
-  if (href) return <a href={href} target="_blank" rel="noopener noreferrer" className={base}>{children}</a>;
+  const validHref = safeHref(href);
+  if (validHref) return <a href={validHref} target="_blank" rel="noopener noreferrer" className={base}>{children}</a>;
   return <div className={base}>{children}</div>;
 }
 
@@ -98,7 +171,6 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
         <p className="text-lg font-bold text-ramp-text leading-none tracking-tight">{originCode}</p>
         <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{depTime}</p>
       </div>
-
       <div className="flex-1 flex flex-col items-center gap-1 min-w-0">
         <div className="flex items-center gap-1.5 w-full">
           <div className="flex-1 h-px bg-ramp-border" />
@@ -119,7 +191,6 @@ function FlightLegRouteVisual({ segments, layovers, isNonstop, durationMinutes }
           </p>
         )}
       </div>
-
       <div className="text-center">
         <p className="text-lg font-bold text-ramp-text leading-none tracking-tight">{destCode}</p>
         <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{arrTime}</p>
@@ -137,7 +208,6 @@ function FlightLegDetails({ segments, layovers }) {
       {segments.map((seg, idx) => (
         <React.Fragment key={idx}>
           <div className="flex items-start gap-3 py-2">
-            {/* dot + solid connector line — w-1.5 dot centred in this column */}
             <div className="flex flex-col items-center pt-1 flex-shrink-0">
               <div className="w-1.5 h-1.5 rounded-full bg-ramp-text-tertiary" />
               {idx < segments.length - 1 && <div className="w-px h-8 bg-ramp-border mt-1" />}
@@ -160,11 +230,6 @@ function FlightLegDetails({ segments, layovers }) {
               {seg.aircraft && <p className="text-[10px] text-ramp-text-tertiary mt-0.5">{seg.aircraft}</p>}
             </div>
           </div>
-
-          {/* Layover block — left border aligned with the solid connector line above.
-              The dot column is w-1.5 (6px) centred, so the line sits at x=3px.
-              ml-[3px] shifts our border to that same x position.
-              pl-[19px] compensates so text stays roughly where it was at ml-5 pl-4. */}
           {layovers?.[idx] && (
             <div className="ml-[3px] border-l border-dashed border-ramp-border-strong pl-[19px] py-2 my-1">
               <p className="text-[11px] text-ramp-text-secondary font-medium">
@@ -191,6 +256,7 @@ function FlightCard({ item }) {
   const segments = d.segments || [];
   const layovers = d.layovers || [];
   const airline = d.airline || {};
+  const [logoError, setLogoError] = useState(false);
   const isRoundTrip = d.is_round_trip || d.trip_type === 'round_trip';
 
   const outboundSegments = d.outbound_segments || [];
@@ -210,61 +276,46 @@ function FlightCard({ item }) {
       <a href={item.booking_url} target="_blank" rel="noopener noreferrer" className="block px-5 py-4">
         <div className="flex items-start justify-between gap-4 mb-4">
           <div className="flex items-center gap-3 min-w-0">
-            {airline.logo
-              ? <img src={airline.logo} alt={airline.name} className="w-7 h-7 object-contain flex-shrink-0" onError={e => e.target.style.display='none'} />
-              : <div className="w-7 h-7 bg-ramp-surface-alt border border-ramp-border flex items-center justify-center flex-shrink-0">
-                  <Plane size={13} className="text-ramp-text-secondary" />
-                </div>
+            {airline.logo && !logoError
+              ? <img src={airline.logo} alt={airline.name || ''} className="w-7 h-7 object-contain flex-shrink-0" onError={() => setLogoError(true)} />
+              : <div className="w-7 h-7 bg-ramp-surface-alt border border-ramp-border flex items-center justify-center flex-shrink-0"><Plane size={12} className="text-ramp-text-secondary" /></div>
             }
             <div className="min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="text-sm font-semibold text-ramp-text">{item.title}</p>
-                {isRoundTrip
-                  ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
-                      <RotateCcw size={9} /> Round Trip
-                    </span>
-                  : <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider border border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary flex-shrink-0">
-                      One Way
-                    </span>
-                }
-              </div>
-              <p className="text-xs text-ramp-text-tertiary mt-0.5">
-                {airline.name}{d.cabin_class ? ` · ${d.cabin_class.replace('_', ' ')}` : ''}
-                {d.passengers > 1 ? ` · ${d.passengers} travelers` : ''}
-              </p>
+              <TypeLabel type="flight" />
+              <p className="text-sm font-semibold text-ramp-text mt-0.5 truncate">{item.title}</p>
+              {airline.name && <p className="text-xs text-ramp-text-secondary">{airline.name}</p>}
             </div>
           </div>
           <div className="text-right flex-shrink-0">
             <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
-            {d.passengers > 1 && <p className="text-[10px] text-ramp-text-tertiary">{formatCurrency(Math.round(item.cost / d.passengers), item)}/person</p>}
+            {d.passengers > 1 && <p className="text-[10px] text-ramp-text-tertiary">{d.passengers} passengers</p>}
+            {d.cabin_class && <p className="text-[10px] text-ramp-text-tertiary capitalize">{d.cabin_class.replace('_', ' ')}</p>}
           </div>
         </div>
-
         {isRoundTrip && outboundSegments.length > 0 ? (
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-ramp-text-tertiary mb-2">Outbound</p>
+              <p className="text-[9px] font-semibold uppercase tracking-widest text-ramp-text-tertiary mb-1.5">Outbound</p>
               <FlightLegRouteVisual segments={outboundSegments} layovers={outboundLayovers} isNonstop={outboundNonstop} durationMinutes={outboundDuration} />
             </div>
             {returnSegments.length > 0 && (
               <div className="pt-3 border-t border-ramp-border">
-                <p className="text-[10px] font-semibold uppercase tracking-widest text-ramp-text-tertiary mb-2">Return</p>
+                <p className="text-[9px] font-semibold uppercase tracking-widest text-ramp-text-tertiary mb-1.5">Return · {d.return_date ? formatDate(d.return_date) : ''}</p>
                 <FlightLegRouteVisual segments={returnSegments} layovers={returnLayovers} isNonstop={returnNonstop} durationMinutes={returnDuration} />
               </div>
             )}
           </div>
-        ) : (
-          <FlightLegRouteVisual segments={segments} layovers={layovers} isNonstop={oneWayNonstop} durationMinutes={d.total_duration_minutes} />
-        )}
+        ) : segments.length > 0 ? (
+          <FlightLegRouteVisual segments={segments} layovers={layovers} isNonstop={oneWayNonstop} durationMinutes={d.total_duration_minutes || 0} />
+        ) : null}
       </a>
-
       {hasSegments && (
         <>
           <button
-            onClick={() => setExpanded(!expanded)}
-            className="w-full px-5 py-2 border-t border-ramp-border bg-ramp-surface-alt
-                       flex items-center justify-center gap-1.5 text-[11px] font-medium text-ramp-text-secondary
-                       hover:text-ramp-text hover:bg-ramp-border/30 transition-colors"
+            onClick={() => setExpanded((e) => !e)}
+            className="w-full flex items-center justify-center gap-1.5 px-5 py-2.5
+                       border-t border-ramp-border text-[11px] font-medium text-ramp-text-secondary
+                       hover:bg-ramp-surface-alt transition-colors"
           >
             {expanded ? 'Hide details' : 'View flight details'}
             {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
@@ -366,23 +417,14 @@ function HotelCard({ item }) {
 
 function TransitCard({ item }) {
   const d = item.details || {};
-
-  // Quantity breakdown — shown when more than 1 pass is needed
   const quantity = d.quantity || 1;
   const pricePerPass = d.price_per_pass;
   const passDurationDays = d.pass_duration_days;
   const daysInCity = d.days_in_city;
   const passLabel = d.pass_label || item.title;
 
-  // Build the per-pass breakdown string e.g. "$34/pass"
-  const perPassStr = pricePerPass > 0
-    ? `${formatCurrency(pricePerPass, item)}/pass`
-    : null;
-
-  // Days coverage note e.g. "covers 12 days"
-  const coverageStr = passDurationDays && daysInCity
-    ? `covers ${daysInCity} day${daysInCity !== 1 ? 's' : ''}`
-    : null;
+  const perPassStr = pricePerPass > 0 ? `${formatCurrency(pricePerPass, item)}/pass` : null;
+  const coverageStr = passDurationDays && daysInCity ? `covers ${daysInCity} day${daysInCity !== 1 ? 's' : ''}` : null;
 
   return (
     <CardWrapper href={item.booking_url}>
@@ -396,78 +438,61 @@ function TransitCard({ item }) {
             <TypeLabel type="transit" />
             <p className="text-sm font-semibold text-ramp-text mt-0.5">{passLabel}</p>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
-              {item.subtitle && (
-                <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>
-              )}
-              {quantity > 1 && perPassStr && (
-                <p className="text-[10px] text-ramp-text-tertiary">
-                  {perPassStr}
-                </p>
-              )}
-              {coverageStr && (
-                <p className="text-[10px] text-ramp-text-tertiary">{coverageStr}</p>
-              )}
+              {item.subtitle && <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>}
+              {quantity > 1 && perPassStr && <p className="text-[10px] text-ramp-text-tertiary">{perPassStr}</p>}
+              {coverageStr && <p className="text-[10px] text-ramp-text-tertiary">{coverageStr}</p>}
             </div>
           </div>
         </div>
         <div className="text-right flex-shrink-0 flex items-center gap-2">
           <div className="text-right">
             <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
-            {quantity > 1 && (
-              <p className="text-[10px] text-ramp-text-tertiary">{quantity} passes</p>
-            )}
+            {quantity > 1 && <p className="text-[10px] text-ramp-text-tertiary">{quantity} passes</p>}
           </div>
-          <ExternalLink size={11} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
+          {safeHref(item.booking_url) && (
+            <ExternalLink size={11} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity" />
+          )}
         </div>
       </div>
     </CardWrapper>
   );
 }
 
-// ── Activity Card ─────────────────────────────────────────────
-
-// ── Activity Card ─────────────────────────────────────────────
+// ── Activity Card (main timeline) ─────────────────────────────
 
 function ActivityCard({ item }) {
   const d = item.details || {};
   const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600";
   const [imgError, setImgError] = useState(false);
   const imgSrc = !imgError && item.image_url ? item.image_url : fallbackImage;
-
   const category = d.category || '';
-  const isFree = item.cost === 0 || item.cost === null || item.cost === undefined;
+  const hasLink = Boolean(safeHref(item.booking_url));
 
   return (
     <a
-      href={item.booking_url}
-      target="_blank"
+      href={hasLink ? safeHref(item.booking_url) : undefined}
+      target={hasLink ? '_blank' : undefined}
       rel="noopener noreferrer"
-      className="group block bg-ramp-surface border border-ramp-border shadow-ramp
-                 hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 overflow-hidden"
+      onClick={!hasLink ? (e) => e.preventDefault() : undefined}
+      className={`group block bg-ramp-surface border border-ramp-border shadow-ramp
+                 hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150 overflow-hidden
+                 ${!hasLink ? 'cursor-default' : ''}`}
     >
       <div className="h-0.5 bg-ramp-yellow" />
       <div className="flex gap-0">
-        {/* Photo thumbnail — same layout as HotelCard */}
-        <div className="w-32 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
-          <img
-            src={imgSrc}
-            alt={item.title}
-            className="w-full h-full object-cover"
-            onError={() => setImgError(true)}
-            style={{ minHeight: '100px' }}
-          />
+        <div className="w-28 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
+          <img src={imgSrc} alt={item.title} className="w-full h-full object-cover"
+               onError={() => setImgError(true)} style={{ minHeight: '110px' }} />
         </div>
-        <div className="flex-1 px-4 py-3 min-w-0 space-y-1.5">
+        <div className="flex-1 px-4 py-4 min-w-0 space-y-1.5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <TypeLabel type="activity" />
-              <p className="text-sm font-semibold text-ramp-text mt-0.5 leading-snug">{item.title}</p>
-              {item.subtitle && (
-                <p className="text-xs text-ramp-text-secondary mt-0.5">{item.subtitle}</p>
-              )}
+              <p className="text-sm font-semibold text-ramp-text mt-0.5 truncate">{item.title}</p>
+              <p className="text-xs text-ramp-text-secondary">{item.subtitle}</p>
             </div>
             <div className="text-right flex-shrink-0">
-              {isFree ? (
+              {item.cost === 0 ? (
                 <span className="text-xs font-semibold text-ramp-green">Free</span>
               ) : (
                 <p className="text-base font-bold text-ramp-text">{formatCurrency(item.cost, item)}</p>
@@ -475,29 +500,144 @@ function ActivityCard({ item }) {
             </div>
           </div>
           {d.description && d.description !== item.subtitle && (
-            <p className="text-[11px] text-ramp-text-tertiary leading-relaxed line-clamp-2">
-              {d.description}
-            </p>
+            <p className="text-[11px] text-ramp-text-tertiary leading-relaxed line-clamp-2">{d.description}</p>
           )}
           <div className="flex items-center gap-2">
             {category && (
-              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt capitalize">
-                {category}
-              </span>
+              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt capitalize">{category}</span>
             )}
             {d.city && (
-              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">
-                {d.city}
+              <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border text-ramp-text-tertiary bg-ramp-surface-alt">{d.city}</span>
+            )}
+            {hasLink ? (
+              <ExternalLink size={10} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity ml-auto" title="Visit link" />
+            ) : (
+              <span className="flex items-center gap-0.5 text-[9px] text-ramp-text-tertiary opacity-0 group-hover:opacity-60 transition-opacity ml-auto italic" title="No link available">
+                <Link2Off size={9} />no link
               </span>
             )}
-            <ExternalLink
-              size={10}
-              className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity ml-auto"
-            />
           </div>
         </div>
       </div>
     </a>
+  );
+}
+
+// ── Daily Activity Card (day-by-day timeline) ─────────────────
+
+function DailyActivityCard({ item, isLast }) {
+  const d = item.details || {};
+  const fallbackImage = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600";
+  const [imgError, setImgError] = useState(false);
+  const imgSrc = !imgError && item.image_url ? item.image_url : fallbackImage;
+  const hasLink = Boolean(safeHref(item.booking_url));
+  const timeSlot = parseTimeSlot(item.subtitle || '');
+  const TimeIcon = timeSlot?.icon || Clock;
+  const CategoryIcon = getCategoryIcon(d.category || item.subtitle || '');
+
+  return (
+    <div className="relative flex gap-3">
+      {/* Left: time column */}
+      <div className="flex flex-col items-center flex-shrink-0 w-16">
+        <div className={`text-[10px] font-semibold text-ramp-text-tertiary whitespace-nowrap`}>
+          {item.time_slot || timeSlot?.label || ''}
+        </div>
+        {/* connector dot */}
+        <div className="mt-1.5 w-2 h-2 rounded-full bg-ramp-border border-2 border-ramp-surface flex-shrink-0" />
+        {!isLast && <div className="flex-1 w-px bg-ramp-border mt-1" style={{ minHeight: '40px' }} />}
+      </div>
+
+      {/* Right: card */}
+      <div className="flex-1 pb-4 min-w-0">
+        <a
+          href={hasLink ? safeHref(item.booking_url) : undefined}
+          target={hasLink ? '_blank' : undefined}
+          rel="noopener noreferrer"
+          onClick={!hasLink ? (e) => e.preventDefault() : undefined}
+          className={`group flex gap-0 bg-ramp-surface border border-ramp-border shadow-ramp overflow-hidden
+                     hover:shadow-ramp-md hover:border-ramp-border-strong transition-all duration-150
+                     ${!hasLink ? 'cursor-default' : ''}`}
+        >
+          {/* Image */}
+          <div className="w-20 flex-shrink-0 bg-ramp-surface-alt overflow-hidden">
+            <img
+              src={imgSrc}
+              alt={item.title}
+              className="w-full h-full object-cover"
+              onError={() => setImgError(true)}
+              style={{ minHeight: '88px' }}
+            />
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 px-3 py-3 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                {/* Category pill */}
+                {d.category && (
+                  <span className="inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider text-ramp-text-tertiary mb-1">
+                    <CategoryIcon size={8} />
+                    {d.category}
+                  </span>
+                )}
+                <p className="text-xs font-semibold text-ramp-text leading-snug truncate">{item.title}</p>
+                {d.description && (
+                  <p className="text-[10px] text-ramp-text-tertiary leading-relaxed mt-0.5 line-clamp-2">{d.description}</p>
+                )}
+              </div>
+              <div className="flex-shrink-0 text-right">
+                {item.cost === 0 ? (
+                  <span className="text-[10px] font-semibold text-ramp-green">Free</span>
+                ) : item.cost > 0 ? (
+                  <span className="text-[11px] font-bold text-ramp-text">{formatCurrency(item.cost, item)}</span>
+                ) : null}
+                {hasLink && (
+                  <ExternalLink size={9} className="text-ramp-text-tertiary opacity-0 group-hover:opacity-100 transition-opacity mt-1 ml-auto block" />
+                )}
+              </div>
+            </div>
+          </div>
+        </a>
+      </div>
+    </div>
+  );
+}
+
+// ── Day Header ────────────────────────────────────────────────
+
+function DayHeader({ dayNumber, dateStr, items }) {
+  const totalCost = items.reduce((s, i) => s + (i.cost || 0), 0);
+  const activityCount = items.length;
+  const hasFood = items.some(i => {
+    const c = (i.details?.category || i.subtitle || '').toLowerCase();
+    return c.includes('food') || c.includes('restaurant') || c.includes('eat') || c.includes('lunch') || c.includes('dinner') || c.includes('breakfast') || c.includes('cafe');
+  });
+
+  return (
+    <div className="sticky top-0 z-10 bg-ramp-bg border-b border-ramp-border py-3 mb-4 -mx-1 px-1">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-ramp-text flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-bold text-white">{dayNumber}</span>
+          </div>
+          <div>
+            <p className="text-sm font-bold text-ramp-text">{formatDateShort(dateStr)}</p>
+            <p className="text-[10px] text-ramp-text-tertiary mt-0.5">
+              {activityCount} stop{activityCount !== 1 ? 's' : ''}
+              {hasFood ? ' · includes dining' : ''}
+              {totalCost > 0 ? ` · ~${formatCurrency(totalCost, {})} est.` : ''}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {items.some(i => (i.details?.category || '').toLowerCase().includes('food') || (i.subtitle || '').toLowerCase().includes('lunch') || (i.subtitle || '').toLowerCase().includes('dinner') || (i.subtitle || '').toLowerCase().includes('breakfast')) && (
+            <span className="text-[9px] px-1.5 py-0.5 border border-ramp-border bg-ramp-surface-alt text-ramp-text-tertiary flex items-center gap-1">
+              <Utensils size={8} /> Dining
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -537,12 +677,11 @@ function TimelineItem({ item, index, isLast, runningCost }) {
   );
 }
 
-// ── Main Timeline ─────────────────────────────────────────────
+// ── Main Trip Timeline ────────────────────────────────────────
 
 export default function ItineraryTimeline({ itinerary }) {
   if (!itinerary) return null;
 
-  // Filter out $0 transit items with no booking link — they're useless to display
   const items = (itinerary.items || []).filter(
     item => !(item.type === 'transit' && !item.cost && !item.booking_url)
   );
@@ -560,7 +699,7 @@ export default function ItineraryTimeline({ itinerary }) {
 
   return (
     <div className="animate-slide-up">
-      {/* ── Trip Header ── */}
+      {/* Trip Header */}
       <div className="bg-ramp-surface border border-ramp-border shadow-ramp mb-6 overflow-hidden">
         <div className="h-1 bg-ramp-yellow" />
         <div className="px-6 py-5 flex items-start justify-between gap-4">
@@ -598,19 +737,17 @@ export default function ItineraryTimeline({ itinerary }) {
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-2xl font-bold text-ramp-text">
-              {formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}
-            </p>
+            <p className="text-2xl font-bold text-ramp-text">{formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}</p>
             <p className="text-xs text-ramp-text-tertiary mt-0.5">estimated total</p>
           </div>
         </div>
       </div>
 
-      {/* ── Timeline Items ── */}
-      <div>
+      {/* Timeline Items */}
+      <div className="space-y-0">
         {items.map((item, idx) => (
           <TimelineItem
-            key={item.id || idx}
+            key={idx}
             item={item}
             index={idx}
             isLast={idx === items.length - 1}
@@ -618,6 +755,140 @@ export default function ItineraryTimeline({ itinerary }) {
           />
         ))}
       </div>
+
+      {/* Total Cost Footer */}
+      <div className="mt-2 bg-ramp-surface border border-ramp-border shadow-ramp overflow-hidden">
+        <div className="h-0.5 bg-ramp-yellow" />
+        <div className="px-6 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-sm font-semibold text-ramp-text">Total Trip Cost</p>
+            <p className="text-xs text-ramp-text-tertiary mt-0.5">All flights, hotels & transit combined</p>
+          </div>
+          <p className="text-2xl font-bold text-ramp-text">{formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Day-by-Day Activity Timeline ──────────────────────────────
+
+export function DailyItineraryTimeline({ itinerary }) {
+  if (!itinerary) return null;
+
+  const items = itinerary.items || [];
+  if (items.length === 0) return null;
+
+  // Group items by date
+  const dayMap = new Map();
+  for (const item of items) {
+    const key = item.date || 'unknown';
+    if (!dayMap.has(key)) dayMap.set(key, []);
+    dayMap.get(key).push(item);
+  }
+
+  const sortedDays = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const totalCost = getTotalCostUSD(items, itinerary.total_cost);
+
+  return (
+    <div className="animate-slide-up">
+      {/* Header */}
+      <div className="bg-ramp-surface border border-ramp-border shadow-ramp mb-6 overflow-hidden">
+        <div className="h-1 bg-ramp-yellow" />
+        <div className="px-6 py-5 flex items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-ramp-text">{itinerary.trip_title}</h2>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-ramp-text-secondary">
+              {itinerary.destinations?.length > 0 && (
+                <span className="flex items-center gap-1.5">
+                  <MapPin size={12} className="text-ramp-text-tertiary" />
+                  {itinerary.destinations.join(' → ')}
+                </span>
+              )}
+              <span className="flex items-center gap-1.5">
+                <Calendar size={12} className="text-ramp-text-tertiary" />
+                {formatDate(itinerary.start_date)} — {formatDate(itinerary.end_date)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 mt-3">
+              <span className="text-[10px] px-2 py-0.5 border border-ramp-border text-ramp-text-secondary bg-ramp-surface-alt">
+                {sortedDays.length} day{sortedDays.length !== 1 ? 's' : ''}
+              </span>
+              <span className="text-[10px] px-2 py-0.5 border border-ramp-border text-ramp-text-secondary bg-ramp-surface-alt">
+                {items.length} activities
+              </span>
+            </div>
+          </div>
+          {totalCost > 0 && (
+            <div className="text-right flex-shrink-0">
+              <p className="text-xl font-bold text-ramp-text">{formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}</p>
+              <p className="text-xs text-ramp-text-tertiary mt-0.5">activities est.</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Days */}
+      <div className="space-y-6">
+        {sortedDays.map(([dateStr, dayItems], dayIdx) => (
+          <div key={dateStr} className="bg-ramp-surface border border-ramp-border shadow-ramp overflow-hidden animate-slide-up" style={{ animationDelay: `${dayIdx * 80}ms` }}>
+            <div className="h-0.5 bg-ramp-yellow" />
+            {/* Day header */}
+            <div className="px-5 py-4 border-b border-ramp-border bg-ramp-surface-alt">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-7 h-7 bg-ramp-text flex items-center justify-center flex-shrink-0">
+                    <span className="text-[11px] font-bold text-white">{dayIdx + 1}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-ramp-text">{formatDateShort(dateStr)}</p>
+                    <p className="text-[10px] text-ramp-text-tertiary mt-0.5">
+                      {/* Show city if known — take from first item with details.city */}
+                      {(() => { const city = dayItems.find(i => i.details?.city)?.details?.city; return city ? <span className="font-medium text-ramp-text-secondary">{city} · </span> : null; })()}
+                      {dayItems.length} stop{dayItems.length !== 1 ? 's' : ''}
+                      {dayItems.some(i => {
+                        const c = (i.details?.category || i.subtitle || '').toLowerCase();
+                        return c.includes('food') || c.includes('restaurant') || c.includes('lunch') || c.includes('dinner') || c.includes('breakfast') || c.includes('cafe') || c.includes('dining');
+                      }) ? ' · includes dining' : ''}
+                    </p>
+                  </div>
+                </div>
+                {/* Day cost */}
+                {dayItems.reduce((s, i) => s + (i.cost || 0), 0) > 0 && (
+                  <p className="text-xs font-semibold text-ramp-text">
+                    ~{formatCurrency(dayItems.reduce((s, i) => s + (i.cost || 0), 0), {})}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Activity list for this day */}
+            <div className="px-5 pt-4 pb-2">
+              {dayItems.map((item, itemIdx) => (
+                <DailyActivityCard
+                  key={itemIdx}
+                  item={item}
+                  isLast={itemIdx === dayItems.length - 1}
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Total footer */}
+      {totalCost > 0 && (
+        <div className="mt-4 bg-ramp-surface border border-ramp-border shadow-ramp overflow-hidden">
+          <div className="h-0.5 bg-ramp-yellow" />
+          <div className="px-6 py-4 flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-ramp-text">Total Activity Cost</p>
+              <p className="text-xs text-ramp-text-tertiary mt-0.5">Estimated admissions & dining</p>
+            </div>
+            <p className="text-xl font-bold text-ramp-text">{formatCurrency(totalCost, { currency_code: 'USD', currency_symbol: '$' })}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,35 +32,44 @@ CAR_IMAGES = {
 }
 
 # ── Curated reference links for transit info pages ─────────────
-# Used as guaranteed fallback when SerpAPI returns no URL or a Google search URL.
-# These are the *official* transit authority pages for each city.
+# Used as guaranteed fallback when SerpAPI returns no URL or a bad one.
 TRANSIT_REFERENCE_LINKS = {
-    "chongqing":   "https://www.cqmetro.cn/",
-    "tokyo":       "https://www.tokyometro.jp/en/ticket/travel/index.html",
-    "london":      "https://tfl.gov.uk/fares/",
-    "paris":       "https://www.ratp.fr/en/titres-et-tarifs/tickets-and-fares",
-    "new york":    "https://new.mta.info/fares",
+    "beijing":       "https://www.bjsubway.com/en/",
+    "shanghai":      "https://www.shmetro.com/",
+    "chengdu":       "https://www.cdmetro.cn/",
+    "chongqing":     "https://www.cqmetro.cn/",
+    "guangzhou":     "https://www.gzmtr.com/",
+    "shenzhen":      "https://www.szmc.net/",
+    "xian":          "https://www.xianmetro.com/",
+    "xi'an":         "https://www.xianmetro.com/",
+    "hangzhou":      "https://www.hzmetro.com/",
+    "wuhan":         "https://www.whmetro.com/",
+    "tokyo":         "https://www.tokyometro.jp/en/ticket/travel/index.html",
+    "osaka":         "https://www.osakametro.co.jp/en/tickets/otps/",
+    "kyoto":         "https://www2.city.kyoto.lg.jp/kotsu/webguide/en/",
+    "london":        "https://tfl.gov.uk/fares/",
+    "paris":         "https://www.ratp.fr/en/titres-et-tarifs/tickets-and-fares",
+    "berlin":        "https://www.bvg.de/en/tickets",
+    "amsterdam":     "https://www.gvb.nl/en/tickets",
+    "rome":          "https://www.atac.roma.it/en/",
+    "madrid":        "https://www.crtm.es/",
+    "barcelona":     "https://www.holabarcelona.com/",
+    "new york":      "https://new.mta.info/fares",
     "new york city": "https://new.mta.info/fares",
-    "nyc":         "https://new.mta.info/fares",
-    "singapore":   "https://thesingaporetouristpass.com.sg/",
-    "barcelona":   "https://www.holabarcelona.com/",
-    "osaka":       "https://www.osakametro.co.jp/en/tickets/otps/",
-    "seoul":       "https://www.t-money.co.kr/eng/",
-    "toronto":     "https://www.ttc.ca/fares-and-passes",
-    "vancouver":   "https://www.translink.ca/transit-fares",
-    "montreal":    "https://www.stm.info/en/info/fares",
-    "chicago":     "https://www.transitchicago.com/fares/",
-    "boston":      "https://www.mbta.com/fares",
-    "washington":  "https://www.wmata.com/fares/",
-    "dc":          "https://www.wmata.com/fares/",
+    "nyc":           "https://new.mta.info/fares",
+    "chicago":       "https://www.transitchicago.com/fares/",
+    "boston":        "https://www.mbta.com/fares",
+    "washington":    "https://www.wmata.com/fares/",
+    "dc":            "https://www.wmata.com/fares/",
     "san francisco": "https://www.bart.gov/tickets",
-    "seattle":     "https://kingcountymetro.com/fares/",
-    "hong kong":   "https://www.mtr.com.hk/en/customer/tickets/index.html",
-    "amsterdam":   "https://www.gvb.nl/en/tickets",
-    "berlin":      "https://www.bvg.de/en/tickets",
-    "rome":        "https://www.atac.roma.it/en/",
-    "madrid":      "https://www.crtm.es/",
-    "dubai":       "https://www.rta.ae/wps/portal/rta/ae/public-transport",
+    "seattle":       "https://kingcountymetro.com/fares/",
+    "toronto":       "https://www.ttc.ca/fares-and-passes",
+    "vancouver":     "https://www.translink.ca/transit-fares",
+    "montreal":      "https://www.stm.info/en/info/fares",
+    "singapore":     "https://thesingaporetouristpass.com.sg/",
+    "hong kong":     "https://www.mtr.com.hk/en/customer/tickets/index.html",
+    "seoul":         "https://www.t-money.co.kr/eng/",
+    "dubai":         "https://www.rta.ae/wps/portal/rta/ae/public-transport",
 }
 
 CURRENCY_SYMBOLS = {
@@ -68,180 +77,25 @@ CURRENCY_SYMBOLS = {
     "CNY": "¥", "SGD": "S$", "KRW": "₩",
 }
 
-
-def _currency_symbol(code: str | None) -> str:
-    return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "USD").upper())
-
-
-def _detect_currency(text: str) -> tuple[str, str]:
-    lower = (text or "").lower()
-    if any(t in lower for t in ("cny", "rmb", "yuan", "renminbi", "元", "￥", "¥")):
-        return "CNY", _currency_symbol("CNY")
-    if any(t in lower for t in ("jpy", "yen")):
-        return "JPY", _currency_symbol("JPY")
-    if any(t in lower for t in ("gbp", "pound", "pounds", "£")):
-        return "GBP", _currency_symbol("GBP")
-    if any(t in lower for t in ("eur", "euro", "euros", "€")):
-        return "EUR", _currency_symbol("EUR")
-    if any(t in lower for t in ("sgd", "singapore dollar", "singapore dollars")):
-        return "SGD", _currency_symbol("SGD")
-    if any(t in lower for t in ("krw", "won", "₩")):
-        return "KRW", _currency_symbol("KRW")
-    # FIX: Explicitly reject CAD hits — "$" in Canadian context is CAD not USD.
-    # The SerpAPI parser already strips CAD via _to_usd, but if the snippet says
-    # "CA$" or "CAD" we detect it here so the price gets converted.
-    if any(t in lower for t in ("cad", "ca$", "canadian dollar")):
-        return "CAD", "CA$"
-    return "USD", _currency_symbol("USD")
+# ── Domains that are Q&A / forum / aggregator sites ───────────
+# SerpAPI sometimes returns these for transit queries — they produce
+# misleading pass names ("What is the cost of...") and unreliable prices.
+_JUNK_DOMAINS = {
+    "quora.com", "reddit.com", "tripadvisor.com", "yahoo.com",
+    "answers.com", "wikianswers.com", "ask.com", "stackexchange.com",
+    "travel.stackexchange.com", "expat.com", "expatexchange.com",
+    "lonelyplanet.com", "wikitravel.org", "wikivoyage.org",
+}
 
 
-def _to_usd(price: float, currency_code: str) -> float:
-    """Convert price to USD using live rates with hardcoded fallback."""
-    if currency_code == "USD" or price <= 0:
-        return price
+def _is_junk_url(url: str) -> bool:
+    """Return True if the URL is from a Q&A, forum, or travel guide site."""
     try:
-        from services.currency_conversion import get_usd_rate
-        rate = get_usd_rate(currency_code)
-        return round(price * rate, 2)
+        from urllib.parse import urlparse
+        host = urlparse(url).netloc.lower().lstrip("www.")
+        return any(host == d or host.endswith("." + d) for d in _JUNK_DOMAINS)
     except Exception:
-        fallback = {
-            "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067, "CNY": 0.14,
-            "SGD": 0.74, "KRW": 0.00074, "CAD": 0.73, "AUD": 0.65,
-        }
-        return round(price * fallback.get(currency_code.upper(), 1.0), 2)
-
-
-def _best_transit_link(city: str, link: str = "") -> str:
-    """
-    Return the best URL for transit info.
-    Priority: provided link (if not a raw Google search URL) → curated reference link.
-    Always returns a non-empty string for cities we know about.
-    """
-    link = (link or "").strip()
-    # Accept any real URL that isn't a Google search results page
-    if link and "google.com/search" not in link and link.startswith("http"):
-        return link
-    # Fall back to our curated reference link for the city
-    city_lower = city.strip().lower()
-    return TRANSIT_REFERENCE_LINKS.get(city_lower, "")
-
-
-# ── Pass duration & quantity logic ────────────────────────────
-
-# Sentinel: rechargeable cards that cover the entire stay (buy once, top up)
-_UNLIMITED_DURATION = 999
-
-
-def _detect_pass_duration(name: str, pass_type: str) -> int:
-    """
-    Infer how many days a single pass covers from its name and type.
-    Returns _UNLIMITED_DURATION (999) for rechargeable top-up cards.
-    """
-    lower = name.lower()
-
-    # Explicit month count: "1-Month Pass", "30-Day Pass"
-    m = re.search(r'(\d+)\s*-?\s*month', lower)
-    if m:
-        return int(m.group(1)) * 30
-
-    # Explicit week count: "2-Week Pass"
-    m = re.search(r'(\d+)\s*-?\s*week', lower)
-    if m:
-        return int(m.group(1)) * 7
-
-    # Explicit day count: "7-Day", "5-Day", "3 Day"
-    m = re.search(r'(\d+)\s*-?\s*day', lower)
-    if m:
-        return int(m.group(1))
-
-    # Hour-based: "72-Hour", "24-Hour", "48-Hour"
-    m = re.search(r'(\d+)\s*-?\s*hour', lower)
-    if m:
-        return max(1, math.ceil(int(m.group(1)) / 24))
-
-    # Keyword fallbacks
-    if any(k in lower for k in ("weekly", "7 day")):
-        return 7
-    if any(k in lower for k in ("monthly", "30 day")):
-        return 30
-    if any(k in lower for k in ("annual", "yearly", "365")):
-        return 365
-
-    # Rechargeable cards: buy once, top up as needed — always quantity 1
-    if any(k in lower for k in ("oyster", "suica", "pasmo", "t-money", "t money",
-                                 "octopus", "navigo easy", "rechargeable", "presto")):
-        return _UNLIMITED_DURATION
-
-    # Pass type fallbacks
-    if pass_type == "rail_pass":
-        return 7
-    if pass_type == "metro_pass":
-        return 7
-    if pass_type == "day_pass":
-        return 1
-
-    # Unknown — treat as day pass (safe, never under-counts)
-    return 1
-
-
-def _calculate_quantity(days_in_city: int, pass_duration: int) -> int:
-    """How many passes are needed to cover the stay?"""
-    if pass_duration >= _UNLIMITED_DURATION:
-        return 1
-    return math.ceil(days_in_city / pass_duration)
-
-
-def _pass_label(name: str, quantity: int) -> str:
-    """E.g. '2× 7-Day Unlimited MetroCard'"""
-    return f"{quantity}× {name}" if quantity > 1 else name
-
-
-def _enrich_with_quantity(result: dict, days_in_city: int) -> dict:
-    """
-    Attach quantity, total_price, pass_duration_days, and pass_label to a
-    raw pass result (price already in USD).
-    """
-    name = result.get("name", "Transit Pass")
-    pass_type = result.get("type", "transit_card")
-    price_per_pass = result.get("price", 0)
-
-    duration = _detect_pass_duration(name, pass_type)
-    quantity = _calculate_quantity(days_in_city, duration)
-    total_price = round(price_per_pass * quantity, 2)
-
-    return {
-        **result,
-        "price_per_pass": price_per_pass,
-        "quantity": quantity,
-        # Report actual days covered per pass (cap 999 to days_in_city for display)
-        "pass_duration_days": duration if duration < _UNLIMITED_DURATION else days_in_city,
-        "days_in_city": days_in_city,
-        "total_price": total_price,
-        "pass_label": _pass_label(name, quantity),
-    }
-
-
-def _pick_best_pass(options: list[dict], days_in_city: int) -> dict:
-    """
-    Choose the pass option that minimises total cost for the stay.
-    Falls back to the first option if all prices are 0.
-    """
-    if not options:
-        raise ValueError("No options to pick from")
-
-    def total_cost(opt):
-        p = opt.get("price", 0)
-        if p <= 0:
-            return float("inf")
-        dur = _detect_pass_duration(opt.get("name", ""), opt.get("type", "transit_card"))
-        qty = _calculate_quantity(days_in_city, dur)
-        return p * qty
-
-    best = min(options, key=total_cost)
-    # If all prices are 0, just return the first (it still has a URL at minimum)
-    if best.get("price", 0) <= 0:
-        return options[0]
-    return best
+        return False
 
 
 # ── Curated transit data ───────────────────────────────────────
@@ -249,78 +103,147 @@ def _pick_best_pass(options: list[dict], days_in_city: int) -> dict:
 
 TRANSIT_OPTIONS = {
     "Tokyo": [
-        {"name": "7-Day Japan Rail Pass",       "type": "rail_pass",    "price": 280, "description": "Unlimited travel on JR lines nationwide",                        "url": "https://www.japan-rail-pass.com"},
-        {"name": "Tokyo Metro 72-Hour Pass",     "type": "metro_pass",   "price": 15,  "description": "Unlimited Tokyo Metro and Toei subway rides",                     "url": "https://www.tokyometro.jp/en/ticket/travel/index.html"},
+        {"name": "Tokyo Metro 72-Hour Pass",     "type": "metro_pass",   "price": 15,  "description": "Unlimited Tokyo Metro and Toei subway rides for 72 hours",        "url": "https://www.tokyometro.jp/en/ticket/travel/index.html"},
         {"name": "Suica Card",                   "type": "transit_card", "price": 5,   "description": "Rechargeable IC card for trains, buses, and shops",               "url": "https://www.jreast.co.jp/e/pass/suica.html"},
-    ],
-    "London": [
-        {"name": "7-Day Travelcard",             "type": "metro_pass",   "price": 55,  "description": "Unlimited travel Zones 1-4 on Tube, buses, and DLR",             "url": "https://tfl.gov.uk/fares/find-fares/tube-and-rail-fares/caps-and-travelcard-prices"},
-        {"name": "Oyster Card",                  "type": "transit_card", "price": 10,  "description": "Capped daily/weekly PAYG fares on Tube, buses, and DLR",          "url": "https://tfl.gov.uk/fares/how-to-pay-and-where-to-buy-tickets-and-oyster/pay-as-you-go/oyster-pay-as-you-go"},
-    ],
-    "Paris": [
-        {"name": "Paris Visite 5-Day Pass",      "type": "metro_pass",   "price": 50,  "description": "Unlimited travel on Metro, RER, buses Zones 1-3",                 "url": "https://www.ratp.fr/en/titres-et-tarifs/paris-visite-travel-pass"},
-        {"name": "Navigo Weekly Pass",           "type": "metro_pass",   "price": 30,  "description": "Unlimited weekly travel on all Paris public transit",              "url": "https://www.iledefrance-mobilites.fr"},
-    ],
-    "New York": [
-        {"name": "7-Day Unlimited MetroCard",    "type": "metro_pass",   "price": 34,  "description": "Unlimited subway and local bus rides for 7 days",                 "url": "https://new.mta.info/fares"},
-        {"name": "30-Day Unlimited MetroCard",   "type": "metro_pass",   "price": 132, "description": "Unlimited subway and local bus rides for 30 days",                "url": "https://new.mta.info/fares"},
-    ],
-    "Singapore": [
-        {"name": "Singapore Tourist Pass 3-Day", "type": "transit_card", "price": 20,  "description": "Unlimited travel on MRT and public buses for 3 days",             "url": "https://thesingaporetouristpass.com.sg"},
-    ],
-    "Barcelona": [
-        {"name": "Hola Barcelona 5-Day Pass",    "type": "metro_pass",   "price": 48,  "description": "Unlimited public transport including airport rail",                "url": "https://www.holabarcelona.com"},
+        {"name": "7-Day Japan Rail Pass",        "type": "rail_pass",    "price": 280, "description": "Unlimited travel on JR lines nationwide for 7 days",              "url": "https://www.japan-rail-pass.com"},
     ],
     "Osaka": [
         {"name": "Osaka Amazing Pass 2-Day",     "type": "metro_pass",   "price": 34,  "description": "Unlimited subway/bus and free entry to 30+ attractions",          "url": "https://www.osp.osaka-info.jp/en/"},
+        {"name": "ICOCA Card",                   "type": "transit_card", "price": 5,   "description": "Rechargeable IC card for Osaka metro, buses, and JR",             "url": "https://www.westjr.co.jp/global/en/travel/icoca/"},
     ],
-    "Seoul": [
-        {"name": "T-money Card",                 "type": "transit_card", "price": 3,   "description": "Rechargeable card for subway, buses, and taxis",                  "url": "https://www.t-money.co.kr/eng/"},
-        {"name": "Discover Seoul Pass 72-Hour",  "type": "metro_pass",   "price": 55,  "description": "Free transport + entry to 30+ attractions for 72 hours",          "url": "https://www.discoverseoulpass.com/"},
+    "Kyoto": [
+        {"name": "Kyoto Bus 1-Day Pass",         "type": "day_pass",     "price": 7,   "description": "Unlimited rides on Kyoto city buses for one day",                 "url": "https://www2.city.kyoto.lg.jp/kotsu/webguide/en/"},
+        {"name": "ICOCA Card",                   "type": "transit_card", "price": 5,   "description": "Rechargeable IC card for Kyoto metro, buses, and JR",             "url": "https://www.westjr.co.jp/global/en/travel/icoca/"},
     ],
-    "Chongqing": [
-        {"name": "Chongqing Metro Day Pass",     "type": "day_pass",     "price": 3,   "description": "Day pass for Chongqing metro and rail transit",                   "url": "https://www.cqmetro.cn/"},
+    "London": [
+        {"name": "7-Day Travelcard Zones 1-2",   "type": "metro_pass",   "price": 55,  "description": "Unlimited travel on Tube, buses, DLR, and Overground Zones 1-2",  "url": "https://tfl.gov.uk/fares/find-fares/tube-and-rail-fares/caps-and-travelcard-prices"},
+        {"name": "Oyster Card",                  "type": "transit_card", "price": 10,  "description": "Pay-as-you-go with daily/weekly fare caps on all TfL services",   "url": "https://tfl.gov.uk/fares/how-to-pay-and-where-to-buy-tickets-and-oyster/pay-as-you-go/oyster-pay-as-you-go"},
     ],
-    # FIX: Toronto added with USD prices and official TTC link
-    "Toronto": [
-        {"name": "PRESTO Day Pass",              "type": "day_pass",     "price": 10,  "description": "Unlimited TTC subway, bus, and streetcar rides for one day (USD equivalent)", "url": "https://www.ttc.ca/fares-and-passes"},
-        {"name": "PRESTO Card",                  "type": "transit_card", "price": 6,   "description": "Reloadable card for TTC with discounted per-ride fares",           "url": "https://www.prestocard.ca/en"},
+    "Paris": [
+        {"name": "Navigo Weekly Pass",           "type": "metro_pass",   "price": 30,  "description": "Unlimited weekly travel on all Paris Metro, RER, buses, and trams", "url": "https://www.iledefrance-mobilites.fr"},
+        {"name": "Paris Visite 5-Day Pass",      "type": "metro_pass",   "price": 50,  "description": "Unlimited travel on Metro, RER, buses Zones 1-3 for 5 days",      "url": "https://www.ratp.fr/en/titres-et-tarifs/paris-visite-travel-pass"},
     ],
-    "Vancouver": [
-        {"name": "DayPass",                      "type": "day_pass",     "price": 11,  "description": "Unlimited travel on SkyTrain, buses, and SeaBus for one day",     "url": "https://www.translink.ca/transit-fares/transit-fare-options/daypass"},
-        {"name": "Compass Card",                 "type": "transit_card", "price": 6,   "description": "Reloadable card for TransLink with tap-to-pay fares",              "url": "https://www.compasscard.ca/"},
+    "Berlin": [
+        {"name": "Berlin 7-Day AB Pass",         "type": "metro_pass",   "price": 36,  "description": "Unlimited BVG U-Bahn, S-Bahn, tram, and bus in zones A+B",       "url": "https://www.bvg.de/en/tickets/all-tickets/weekly-ticket"},
+        {"name": "Berlin Welcome Card 3-Day",    "type": "metro_pass",   "price": 29,  "description": "Unlimited public transit + museum discounts for 3 days",          "url": "https://www.visitberlin.de/en/berlin-welcome-card"},
     ],
-    "Montreal": [
-        {"name": "3-Day Tourist Pass",           "type": "metro_pass",   "price": 19,  "description": "Unlimited STM metro and bus rides for 3 consecutive days",        "url": "https://www.stm.info/en/info/fares/tourist"},
-        {"name": "Weekly Pass",                  "type": "metro_pass",   "price": 29,  "description": "Unlimited STM metro and bus rides for 7 days",                    "url": "https://www.stm.info/en/info/fares"},
+    "Amsterdam": [
+        {"name": "Amsterdam & Region Travel Ticket 3-Day", "type": "metro_pass", "price": 32, "description": "Unlimited GVB tram, metro, bus, and night bus for 3 days", "url": "https://www.gvb.nl/en/tickets/amsterdam-travel-ticket"},
+        {"name": "OV-chipkaart",                 "type": "transit_card", "price": 8,   "description": "Rechargeable card for all Dutch public transport",                 "url": "https://www.ov-chipkaart.nl/"},
+    ],
+    "Rome": [
+        {"name": "Rome 72-Hour Pass",            "type": "metro_pass",   "price": 18,  "description": "Unlimited metro, buses, and trams in Rome for 72 hours",          "url": "https://www.atac.roma.it/en/"},
+        {"name": "Rome 48-Hour Pass",            "type": "metro_pass",   "price": 12,  "description": "Unlimited metro, buses, and trams in Rome for 48 hours",          "url": "https://www.atac.roma.it/en/"},
+    ],
+    "Madrid": [
+        {"name": "Madrid Tourist Travel Pass 7-Day", "type": "metro_pass", "price": 35, "description": "Unlimited metro, bus, and commuter rail Zone A for 7 days",      "url": "https://www.metromadrid.es/en/tickets"},
+    ],
+    "Barcelona": [
+        {"name": "Hola Barcelona 5-Day Pass",    "type": "metro_pass",   "price": 48,  "description": "Unlimited public transport including Aerobus and airport rail",   "url": "https://www.holabarcelona.com"},
+        {"name": "T-Casual 10-Trip Card",        "type": "transit_card", "price": 12,  "description": "10-trip card for metro, buses, and trams in Zone 1",              "url": "https://www.tmb.cat/en/barcelona-transport/t-casual"},
+    ],
+    "New York": [
+        {"name": "7-Day Unlimited MetroCard",    "type": "metro_pass",   "price": 34,  "description": "Unlimited NYC subway and local bus rides for 7 days",             "url": "https://new.mta.info/fares"},
+        {"name": "30-Day Unlimited MetroCard",   "type": "metro_pass",   "price": 132, "description": "Unlimited NYC subway and local bus rides for 30 days",            "url": "https://new.mta.info/fares"},
     ],
     "Chicago": [
-        {"name": "3-Day Unlimited Ride Pass",    "type": "metro_pass",   "price": 20,  "description": "Unlimited CTA train and bus rides for 3 days",                    "url": "https://www.transitchicago.com/fares/"},
-        {"name": "7-Day Unlimited Ride Pass",    "type": "metro_pass",   "price": 28,  "description": "Unlimited CTA train and bus rides for 7 days",                    "url": "https://www.transitchicago.com/fares/"},
+        {"name": "3-Day Unlimited Ride Pass",    "type": "metro_pass",   "price": 20,  "description": "Unlimited CTA 'L' train and bus rides for 3 days",               "url": "https://www.transitchicago.com/fares/"},
+        {"name": "7-Day Unlimited Ride Pass",    "type": "metro_pass",   "price": 28,  "description": "Unlimited CTA 'L' train and bus rides for 7 days",               "url": "https://www.transitchicago.com/fares/"},
     ],
     "Boston": [
         {"name": "7-Day LinkPass",               "type": "metro_pass",   "price": 22,  "description": "Unlimited MBTA subway, bus, and commuter rail Zone 1A for 7 days","url": "https://www.mbta.com/fares/charliecard"},
     ],
     "Washington": [
-        {"name": "7-Day Short-Trip Pass",        "type": "metro_pass",   "price": 38,  "description": "Unlimited WMATA Metro rail and bus rides up to $3.85/trip for 7 days", "url": "https://www.wmata.com/fares/"},
+        {"name": "7-Day Short-Trip SmarTrip Pass","type": "metro_pass",  "price": 38,  "description": "Unlimited WMATA Metro rail and bus rides up to $3.85/trip for 7 days", "url": "https://www.wmata.com/fares/"},
     ],
     "San Francisco": [
-        {"name": "Clipper Card",                 "type": "transit_card", "price": 3,   "description": "Reloadable card for BART, Muni, and other Bay Area transit",      "url": "https://www.clippercard.com/ClipperWeb/"},
         {"name": "Muni 7-Day Passport",          "type": "metro_pass",   "price": 23,  "description": "Unlimited Muni bus and metro rides for 7 days",                   "url": "https://www.sfmta.com/fares/muni-passports"},
+        {"name": "Clipper Card",                 "type": "transit_card", "price": 3,   "description": "Reloadable card for BART, Muni, and other Bay Area transit",      "url": "https://www.clippercard.com/ClipperWeb/"},
     ],
     "Seattle": [
         {"name": "ORCA Card",                    "type": "transit_card", "price": 3,   "description": "Reloadable card for Link Light Rail, buses, and ferries",         "url": "https://www.orcacard.com/"},
     ],
+    "Toronto": [
+        {"name": "PRESTO Day Pass",              "type": "day_pass",     "price": 10,  "description": "Unlimited TTC subway, bus, and streetcar rides for one day",      "url": "https://www.ttc.ca/fares-and-passes"},
+        {"name": "PRESTO Card",                  "type": "transit_card", "price": 6,   "description": "Reloadable card for TTC with discounted per-ride fares",           "url": "https://www.prestocard.ca/en"},
+    ],
+    "Vancouver": [
+        {"name": "TransLink DayPass",            "type": "day_pass",     "price": 11,  "description": "Unlimited travel on SkyTrain, buses, and SeaBus for one day",     "url": "https://www.translink.ca/transit-fares/transit-fare-options/daypass"},
+        {"name": "Compass Card",                 "type": "transit_card", "price": 6,   "description": "Reloadable card for TransLink with tap-to-pay fares",              "url": "https://www.compasscard.ca/"},
+    ],
+    "Montreal": [
+        {"name": "STM 3-Day Tourist Pass",       "type": "metro_pass",   "price": 19,  "description": "Unlimited STM metro and bus rides for 3 consecutive days",        "url": "https://www.stm.info/en/info/fares/tourist"},
+        {"name": "STM Weekly Pass",              "type": "metro_pass",   "price": 29,  "description": "Unlimited STM metro and bus rides for 7 days",                    "url": "https://www.stm.info/en/info/fares"},
+    ],
+    "Singapore": [
+        {"name": "Singapore Tourist Pass 3-Day", "type": "transit_card", "price": 20,  "description": "Unlimited travel on MRT, LRT, and public buses for 3 days",      "url": "https://thesingaporetouristpass.com.sg"},
+    ],
     "Hong Kong": [
-        {"name": "Airport Express Tourist Octopus", "type": "transit_card", "price": 16, "description": "Octopus card with airport express + unlimited MTR/bus rides",   "url": "https://www.mtr.com.hk/en/customer/tickets/index.html"},
+        {"name": "Airport Express Tourist Octopus", "type": "transit_card", "price": 16, "description": "Octopus card with airport express bonus + unlimited MTR/bus",    "url": "https://www.mtr.com.hk/en/customer/tickets/index.html"},
     ],
-    "Amsterdam": [
-        {"name": "Amsterdam & Region Travel Ticket 3-Day", "type": "metro_pass", "price": 32, "description": "Unlimited GVB tram, metro, bus, and night bus for 3 days", "url": "https://www.gvb.nl/en/tickets/amsterdam-travel-ticket"},
+    "Seoul": [
+        {"name": "T-money Card",                 "type": "transit_card", "price": 3,   "description": "Rechargeable card for subway, buses, and taxis in Seoul",         "url": "https://www.t-money.co.kr/eng/"},
+        {"name": "Discover Seoul Pass 72-Hour",  "type": "metro_pass",   "price": 55,  "description": "Unlimited transport + free entry to 30+ attractions for 72 hours","url": "https://www.discoverseoulpass.com/"},
     ],
-    "Berlin": [
-        {"name": "Berlin 7-Day AB Pass",         "type": "metro_pass",   "price": 36,  "description": "Unlimited BVG U-Bahn, S-Bahn, tram, and bus in zones A+B",       "url": "https://www.bvg.de/en/tickets/all-tickets/weekly-ticket"},
+    "Dubai": [
+        {"name": "Nol Red Ticket",               "type": "transit_card", "price": 3,   "description": "Pay-per-ride card for Dubai Metro, tram, and buses",              "url": "https://www.rta.ae/wps/portal/rta/ae/public-transport"},
+        {"name": "Nol Silver Card",              "type": "transit_card", "price": 5,   "description": "Rechargeable card for all RTA public transport",                  "url": "https://www.rta.ae/wps/portal/rta/ae/public-transport"},
+    ],
+    # ── Chinese cities — metro day passes ~2-3 CNY/¥ ≈ $0.40-1 USD per trip ──
+    "Beijing": [
+        {"name": "Beijing Subway Day Pass",      "type": "day_pass",     "price": 4,   "description": "Unlimited Beijing subway rides for one day (¥28 CNY)",            "url": "https://www.bjsubway.com/en/"},
+        {"name": "Beijing Transit IC Card",      "type": "transit_card", "price": 3,   "description": "Rechargeable card for subway and buses, flat ¥3 CNY per ride",    "url": "https://www.bjsubway.com/en/"},
+    ],
+    "Shanghai": [
+        {"name": "Shanghai Metro Day Pass",      "type": "day_pass",     "price": 4,   "description": "Unlimited Shanghai Metro rides for one day (¥28 CNY)",            "url": "https://www.shmetro.com/"},
+        {"name": "Shanghai Public Transportation Card", "type": "transit_card", "price": 3, "description": "Rechargeable card for metro and buses in Shanghai",           "url": "https://www.shmetro.com/"},
+    ],
+    "Chengdu": [
+        {"name": "Chengdu Metro Day Pass",       "type": "day_pass",     "price": 3,   "description": "Unlimited Chengdu Metro rides for one day (¥20 CNY)",            "url": "https://www.cdmetro.cn/"},
+        {"name": "Chengdu Transit Card",         "type": "transit_card", "price": 2,   "description": "Rechargeable card for Chengdu Metro and buses, ¥2 CNY per ride", "url": "https://www.cdmetro.cn/"},
+    ],
+    "Chongqing": [
+        {"name": "Chongqing Metro Day Pass",     "type": "day_pass",     "price": 3,   "description": "Unlimited Chongqing Rail Transit rides for one day (¥20 CNY)",   "url": "https://www.cqmetro.cn/"},
+        {"name": "Chongqing Transit Card",       "type": "transit_card", "price": 2,   "description": "Rechargeable card for Chongqing metro and buses, ¥2 CNY per ride","url": "https://www.cqmetro.cn/"},
+    ],
+    "Guangzhou": [
+        {"name": "Guangzhou Metro Day Pass",     "type": "day_pass",     "price": 4,   "description": "Unlimited Guangzhou Metro rides for one day (¥26 CNY)",           "url": "https://www.gzmtr.com/"},
+        {"name": "Yang Cheng Tong Card",         "type": "transit_card", "price": 3,   "description": "Rechargeable card for Guangzhou Metro and buses",                 "url": "https://www.gzmtr.com/"},
+    ],
+    "Shenzhen": [
+        {"name": "Shenzhen Metro Day Pass",      "type": "day_pass",     "price": 4,   "description": "Unlimited Shenzhen Metro rides for one day (¥26 CNY)",            "url": "https://www.szmc.net/"},
+        {"name": "Shenzhen Tong Card",           "type": "transit_card", "price": 3,   "description": "Rechargeable card for Shenzhen Metro, buses, and taxis",          "url": "https://www.szmc.net/"},
+    ],
+    "Xi'an": [
+        {"name": "Xi'an Metro Day Pass",         "type": "day_pass",     "price": 3,   "description": "Unlimited Xi'an Metro rides for one day (¥20 CNY)",              "url": "https://www.xianmetro.com/"},
+        {"name": "Xi'an Transit Card",           "type": "transit_card", "price": 2,   "description": "Rechargeable card for Xi'an Metro and buses",                     "url": "https://www.xianmetro.com/"},
+    ],
+    "Hangzhou": [
+        {"name": "Hangzhou Metro Day Pass",      "type": "day_pass",     "price": 3,   "description": "Unlimited Hangzhou Metro rides for one day (¥20 CNY)",            "url": "https://www.hzmetro.com/"},
+    ],
+    "Wuhan": [
+        {"name": "Wuhan Metro Day Pass",         "type": "day_pass",     "price": 3,   "description": "Unlimited Wuhan Metro rides for one day (¥20 CNY)",               "url": "https://www.whmetro.com/"},
     ],
 }
+
+# ── City name normalization for curated lookup ────────────────
+# Maps lowercase variants → canonical key in TRANSIT_OPTIONS
+_CITY_ALIASES = {
+    "new york city": "New York",
+    "nyc":           "New York",
+    "xian":          "Xi'an",
+    "xi an":         "Xi'an",
+    "washington dc": "Washington",
+    "washington d.c.": "Washington",
+    "dc":            "Washington",
+    "sf":            "San Francisco",
+}
+
+
+def _normalize_city(city: str) -> str:
+    """Return the canonical city name for curated data lookup."""
+    key = city.strip().lower()
+    return _CITY_ALIASES.get(key, city.strip().title())
 
 
 # ── Public interface: Transit ─────────────────────────────────
@@ -338,49 +261,69 @@ def search_transit(city: str, days_in_city: int = 7) -> list[dict]:
       total_price     — price_per_pass × quantity  ← use this as the itinerary cost
       pass_label      — e.g. "2× 7-Day Unlimited MetroCard"
       days_in_city    — echoed back for the UI
-      booking_url     — link to purchase (always set for known cities)
+      booking_url     — link to purchase
     """
     days_in_city = max(1, int(days_in_city))
     raw: list[dict] = []
 
-    # 1. Try SerpAPI
+    canonical_city = _normalize_city(city)
+
+    # 1. Try SerpAPI — but ONLY use results that pass quality checks
     if Config.SERPAPI_KEY:
         try:
-            raw = _search_serpapi_transit(city)
-            if raw:
-                logger.info("SerpAPI transit: %d results for %s", len(raw), city)
+            serpapi_results = _search_serpapi_transit(city)
+            # Filter: require price in (0, 80] USD — anything above $80/pass is almost
+            # certainly a monthly/annual price or a parsing error (the most expensive
+            # tourist transit pass in the world is under $80/pass). Also reject
+            # question-titled results (Quora-style) and junk domains.
+            quality = [
+                r for r in serpapi_results
+                if 0 < r.get("price", 0) <= 80
+                and r.get("name", "")
+                and not r["name"].lower().startswith("what ")
+                and not r["name"].lower().startswith("how ")
+                and not r["name"].lower().startswith("why ")
+                and not r["name"].lower().startswith("where ")
+                and not _is_junk_url(r.get("booking_url", ""))
+            ]
+            if quality:
+                raw = quality
+                logger.info("SerpAPI transit (quality-filtered): %d results for %s", len(raw), city)
+            else:
+                logger.info("SerpAPI transit returned no quality results for %s — using curated", city)
         except Exception:
             logger.exception("SerpAPI transit failed for %s", city)
 
-    # 2. Curated fallback
+    # 2. Curated fallback — always used when SerpAPI gives nothing useful
     if not raw:
-        options = TRANSIT_OPTIONS.get(city, [])
+        options = TRANSIT_OPTIONS.get(canonical_city, [])
         if options:
             raw = [
                 {**o, "price": o.get("price", 0), "currency_code": "USD", "currency_symbol": "$",
                  "booking_url": o.get("booking_url", o.get("url", ""))}
                 for o in options
             ]
-            logger.info("Curated transit data for %s (%d options)", city, len(raw))
+            logger.info("Curated transit data for %s (%d options)", canonical_city, len(raw))
 
     # 3. Nothing found
     if not raw:
         logger.info("No transit data for %s — skipping", city)
         return []
 
-    # Remove zero-price entries that also lack a URL (truly useless)
+    # Remove entries that have no price AND no URL (truly useless)
     raw = [r for r in raw if r.get("price", 0) > 0 or r.get("booking_url")]
 
-    # FIX: Guarantee every result has a booking_url by falling back to the
-    # curated reference link for the city. This ensures the card is always clickable.
-    city_lower = city.strip().lower()
+    # Ensure every result has a booking_url from our reference table
+    city_lower = canonical_city.strip().lower()
     fallback_url = TRANSIT_REFERENCE_LINKS.get(city_lower, "")
     for r in raw:
         if not r.get("booking_url") and fallback_url:
             r["booking_url"] = fallback_url
+        # If booking_url is a junk domain, replace it with the reference link
+        if r.get("booking_url") and _is_junk_url(r["booking_url"]) and fallback_url:
+            r["booking_url"] = fallback_url
 
-    # FIX: Force all prices to USD — SerpAPI may return CAD prices for Canadian cities.
-    # The curated data is already in USD, but SerpAPI results need explicit conversion.
+    # Force all prices to USD
     for r in raw:
         cc = r.get("currency_code", "USD")
         if cc != "USD" and r.get("price", 0) > 0:
@@ -388,11 +331,50 @@ def search_transit(city: str, days_in_city: int = 7) -> list[dict]:
             r["currency_code"] = "USD"
             r["currency_symbol"] = "$"
 
-    # Pick the cheapest option for this stay, then enrich
+    # Sanity-cap: discard any result whose per-pass price is implausibly high.
+    # If we have curated data for this city, prefer it over anything above $80.
+    raw_after_cap = [r for r in raw if r.get("price", 0) <= 80 or r.get("price", 0) == 0]
+    curated_exists = bool(TRANSIT_OPTIONS.get(canonical_city))
+    if not raw_after_cap and curated_exists:
+        # All SerpAPI results were implausible — fall through to curated below
+        raw = []
+    elif raw_after_cap:
+        raw = raw_after_cap
+    # (if no curated data exists, keep the original raw so we at least have something)
+
+    # Re-apply curated fallback if SerpAPI was wiped by the sanity cap
+    if not raw:
+        options = TRANSIT_OPTIONS.get(canonical_city, [])
+        if options:
+            raw = [
+                {**o, "price": o.get("price", 0), "currency_code": "USD", "currency_symbol": "$",
+                 "booking_url": o.get("booking_url", o.get("url", ""))}
+                for o in options
+            ]
+            logger.info("Post-cap curated fallback for %s (%d options)", canonical_city, len(raw))
+
+    if not raw:
+        return []
+
+    # If we still have zero-price entries, try to fill from curated estimates
+    curated_options = TRANSIT_OPTIONS.get(canonical_city, [])
+    for r in raw:
+        if r.get("price", 0) <= 0 and curated_options:
+            # Use the cheapest curated option's price as a best-guess estimate
+            cheapest = min(curated_options, key=lambda o: o.get("price", 999))
+            r["price"] = cheapest.get("price", 0)
+            r["price_is_estimate"] = True
+            logger.info("Applied curated price estimate ($%.2f) to '%s' for %s",
+                        r["price"], r.get("name", ""), city)
+
+    # Remove anything still at $0 with no URL
+    raw = [r for r in raw if r.get("price", 0) > 0 or r.get("booking_url")]
+    if not raw:
+        return []
+
     best = _pick_best_pass(raw, days_in_city)
     enriched = _enrich_with_quantity(best, days_in_city)
 
-    # Ensure the enriched result always has a booking_url
     if not enriched.get("booking_url") and fallback_url:
         enriched["booking_url"] = fallback_url
 
@@ -413,7 +395,7 @@ def _search_serpapi_transit(city: str) -> list[dict]:
 
     params = {
         "engine": "google",
-        "q": f"{city} transit pass travel card price USD",
+        "q": f"{city} metro transit pass tourist card price",
         "num": 5, "hl": "en", "gl": "us",
         "api_key": Config.SERPAPI_KEY,
     }
@@ -428,10 +410,35 @@ def _search_serpapi_transit(city: str) -> list[dict]:
     ]
 
     results = []
+
+    # Answer box first — most reliable
+    ab = data.get("answer_box", {})
+    if ab:
+        at = ab.get("title", "") or ab.get("answer", "")
+        as_ = ab.get("snippet", "") or ab.get("description", "")
+        al = ab.get("link", "")
+        if at and any(kw in (at + as_).lower() for kw in ["transit", "pass", "card", "metro", "subway"]):
+            if not _is_junk_url(al):
+                pi = _parse_transit_result(at, as_, al, city)
+                if pi:
+                    results.insert(0, pi)
+
     for item in data.get("organic_results", [])[:8]:
-        title, snippet, link = item.get("title",""), item.get("snippet",""), item.get("link","")
+        title = item.get("title", "")
+        snippet = item.get("snippet", "")
+        link = item.get("link", "")
+
+        # Skip junk domains immediately
+        if _is_junk_url(link):
+            continue
+
+        # Skip titles that look like questions (these are Quora/forum titles)
+        if re.match(r'^(what|how|why|where|when|is|are|does|do)\b', title.strip(), re.IGNORECASE):
+            continue
+
         if not any(kw in (title + snippet).lower() for kw in transit_keywords):
             continue
+
         pi = _parse_transit_result(title, snippet, link, city)
         if pi:
             results.append(pi)
@@ -440,28 +447,15 @@ def _search_serpapi_transit(city: str) -> list[dict]:
             if fi:
                 results.append(fi)
 
-    ab = data.get("answer_box", {})
-    if ab:
-        at = ab.get("title","") or ab.get("answer","")
-        as_ = ab.get("snippet","") or ab.get("description","")
-        al = ab.get("link","")
-        if at and any(kw in (at + as_).lower() for kw in ["transit","pass","card","metro"]):
-            pi = _parse_transit_result(at, as_, al, city)
-            if pi:
-                results.insert(0, pi)
-            elif al:
-                fi = _fallback_transit_result(at, as_, al, city)
-                if fi:
-                    results.insert(0, fi)
-
-    # Deduplicate
+    # Deduplicate by name
     seen, unique = set(), []
     for r in results:
         k = r["name"].lower()[:30]
         if k not in seen:
-            seen.add(k); unique.append(r)
+            seen.add(k)
+            unique.append(r)
 
-    # Normalise to USD (handles CAD, EUR, GBP, etc. from SerpAPI snippets)
+    # Normalize to USD
     for r in unique:
         cc = r.get("currency_code", "USD")
         if cc != "USD" and r.get("price", 0) > 0:
@@ -489,7 +483,8 @@ def _parse_transit_result(title: str, snippet: str, link: str, city: str) -> dic
             try:
                 c = float(m.group(1))
                 if 1 <= c <= 500:
-                    price = c; break
+                    price = c
+                    break
             except ValueError:
                 pass
 
@@ -503,7 +498,7 @@ def _parse_transit_result(title: str, snippet: str, link: str, city: str) -> dic
         pass_type = "day_pass"
 
     name = title.strip()
-    for suffix in [" - Google Search", " | Google Maps", " - Wikipedia"]:
+    for suffix in [" - Google Search", " | Google Maps", " - Wikipedia", " - Rome2Rio"]:
         name = name.replace(suffix, "")
     name = name[:80]
     if not name:
@@ -530,3 +525,147 @@ def _fallback_transit_result(title: str, snippet: str, link: str, city: str) -> 
         "description": snippet[:200].strip() if snippet else f"Public transit information for {city}",
         "url": booking_url, "booking_url": booking_url,
     }
+
+
+def _currency_symbol(code: str | None) -> str:
+    return CURRENCY_SYMBOLS.get((code or "").upper(), (code or "USD").upper())
+
+
+def _detect_currency(text: str) -> tuple[str, str]:
+    lower = (text or "").lower()
+    if any(t in lower for t in ("cny", "rmb", "yuan", "renminbi", "元", "￥", "¥")):
+        return "CNY", _currency_symbol("CNY")
+    if any(t in lower for t in ("jpy", "yen")):
+        return "JPY", _currency_symbol("JPY")
+    if any(t in lower for t in ("gbp", "pound", "pounds", "£")):
+        return "GBP", _currency_symbol("GBP")
+    if any(t in lower for t in ("eur", "euro", "euros", "€")):
+        return "EUR", _currency_symbol("EUR")
+    if any(t in lower for t in ("sgd", "singapore dollar", "singapore dollars")):
+        return "SGD", _currency_symbol("SGD")
+    if any(t in lower for t in ("krw", "won", "₩")):
+        return "KRW", _currency_symbol("KRW")
+    if any(t in lower for t in ("cad", "ca$", "canadian dollar")):
+        return "CAD", "CA$"
+    return "USD", _currency_symbol("USD")
+
+
+def _to_usd(price: float, currency_code: str) -> float:
+    """Convert price to USD using live rates with hardcoded fallback."""
+    if currency_code == "USD" or price <= 0:
+        return price
+    try:
+        from services.currency_conversion import get_usd_rate
+        rate = get_usd_rate(currency_code)
+        return round(price * rate, 2)
+    except Exception:
+        fallback = {
+            "EUR": 1.08, "GBP": 1.27, "JPY": 0.0067, "CNY": 0.14,
+            "SGD": 0.74, "KRW": 0.00074, "CAD": 0.73, "AUD": 0.65,
+        }
+        return round(price * fallback.get(currency_code.upper(), 1.0), 2)
+
+
+def _best_transit_link(city: str, link: str = "") -> str:
+    """
+    Return the best URL for transit info.
+    Priority: provided link (if not a Google search URL and not a junk domain)
+              → curated reference link.
+    """
+    link = (link or "").strip()
+    if (link
+            and link.startswith("http")
+            and "google.com/search" not in link
+            and not _is_junk_url(link)):
+        return link
+    city_lower = city.strip().lower()
+    return TRANSIT_REFERENCE_LINKS.get(city_lower, "")
+
+
+# ── Pass duration & quantity logic ────────────────────────────
+
+_UNLIMITED_DURATION = 999
+
+
+def _detect_pass_duration(name: str, pass_type: str) -> int:
+    """
+    Infer how many days a single pass covers from its name and type.
+    Returns _UNLIMITED_DURATION (999) for rechargeable top-up cards.
+    """
+    lower = name.lower()
+
+    # Rechargeable cards — single purchase covers entire stay
+    if pass_type == "transit_card" or any(k in lower for k in
+            ["ic card", "oyster", "suica", "pasmo", "t-money", "octopus", "presto",
+             "compass card", "orca card", "clipper card", "nol card", "opal card",
+             "rechargeable", "top-up", "topup", "pay-as-you-go", "payg",
+             "yang cheng tong", "public transportation card", "transit card",
+             "transit ic", "ic card"]):
+        return _UNLIMITED_DURATION
+
+    # Named durations
+    for n, days in [("30-day", 30), ("monthly", 30), ("week", 7), ("7-day", 7),
+                    ("72-hour", 3), ("3-day", 3), ("48-hour", 2), ("2-day", 2),
+                    ("24-hour", 1), ("1-day", 1), ("day pass", 1), ("daily", 1)]:
+        if n in lower:
+            return days
+
+    # Pass type defaults
+    defaults = {"rail_pass": 7, "metro_pass": 3, "day_pass": 1, "transit_card": _UNLIMITED_DURATION}
+    return defaults.get(pass_type, 1)
+
+
+def _calculate_quantity(days_in_city: int, pass_duration_days: int) -> int:
+    """How many passes are needed to cover days_in_city?"""
+    if pass_duration_days >= _UNLIMITED_DURATION:
+        return 1
+    return math.ceil(days_in_city / pass_duration_days)
+
+
+def _enrich_with_quantity(option: dict, days_in_city: int) -> dict:
+    """Add quantity, total_price, and pass_label to a transit option."""
+    name = option.get("name", "Transit Pass")
+    pass_type = option.get("type", "transit_card")
+    price = option.get("price", 0)
+
+    duration = _detect_pass_duration(name, pass_type)
+    quantity = _calculate_quantity(days_in_city, duration)
+    actual_duration = duration if duration < _UNLIMITED_DURATION else days_in_city
+
+    total_price = round(price * quantity, 2)
+    pass_label = f"{quantity}× {name}" if quantity > 1 else name
+
+    return {
+        **option,
+        "price_per_pass":    price,
+        "pass_duration_days": actual_duration,
+        "quantity":          quantity,
+        "total_price":       total_price,
+        "pass_label":        pass_label,
+        "days_in_city":      days_in_city,
+        "booking_url":       option.get("booking_url", option.get("url", "")),
+        "currency_code":     "USD",
+        "currency_symbol":   "$",
+    }
+
+
+def _pick_best_pass(options: list[dict], days_in_city: int) -> dict:
+    """
+    Pick the option with the lowest total_price for the given stay length.
+    Falls back to the first option if all prices are 0.
+    """
+    if not options:
+        raise ValueError("No options to pick from")
+
+    def total_cost(opt):
+        p = opt.get("price", 0)
+        if p <= 0:
+            return float("inf")
+        dur = _detect_pass_duration(opt.get("name", ""), opt.get("type", "transit_card"))
+        qty = _calculate_quantity(days_in_city, dur)
+        return p * qty
+
+    best = min(options, key=total_cost)
+    if best.get("price", 0) <= 0:
+        return options[0]
+    return best
