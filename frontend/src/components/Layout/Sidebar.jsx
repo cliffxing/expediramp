@@ -1,6 +1,40 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MapPin, Plus, Loader2, Clock, ChevronLeft, ChevronRight, Search } from 'lucide-react';
+import { MapPin, Plus, Loader2, Clock, Search } from 'lucide-react';
 import { getConversations } from '../../api/client';
+
+function SidebarToggleGlyph({ collapsed }) {
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 13 13"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      className="overflow-visible"
+    >
+      <rect x="1.25" y="1.25" width="10.5" height="10.5" rx="1.6" stroke="currentColor" strokeWidth="1.2" />
+      <line x1="4.35" y1="1.85" x2="4.35" y2="11.15" stroke="currentColor" strokeWidth="1.2" />
+      {collapsed ? (
+        <path
+          d="M7.1 6.5L5.7 5.15M7.1 6.5L5.7 7.85M7.1 6.5H10"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ) : (
+        <path
+          d="M7.6 6.5L9 5.15M7.6 6.5L9 7.85M7.6 6.5H4.9"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  );
+}
 
 export default function Sidebar({ token, activeConversationId, onSelect, onNewChat }) {
   const [conversations, setConversations] = useState([]);
@@ -52,7 +86,7 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
                      hover:bg-ramp-surface-alt hover:text-ramp-text transition-colors flex-shrink-0"
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
         >
-          {collapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
+          <SidebarToggleGlyph collapsed={collapsed} />
         </button>
       </div>
 
