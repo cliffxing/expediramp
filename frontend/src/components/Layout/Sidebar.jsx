@@ -69,7 +69,7 @@ export default function Sidebar({ token, activeConversationId, onSelect, onNewCh
               type="text"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search first prompt"
+              placeholder="Search through my trips"
               className="w-full border border-ramp-border bg-ramp-surface pl-8 pr-3 py-2 text-xs text-ramp-text placeholder:text-ramp-text-tertiary focus:outline-none focus:border-ramp-text"
             />
           </label>
