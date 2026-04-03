@@ -92,6 +92,22 @@ export default function App() {
 
   const prevUserRef = useRef(user);
 
+  const clearLoadingState = useCallback(() => {
+    setStreamingText('');
+    setActiveTools([]);
+    setPendingItinerary(null);
+    setIsLoading(false);
+    setRequestStartedAt(null);
+    setNotifyOnFinish(false);
+  }, []);
+
+  const abortActiveStream = useCallback(() => {
+    if (!currentStreamControllerRef.current) return;
+    currentStreamControllerRef.current.abort();
+    currentStreamControllerRef.current = null;
+    clearLoadingState();
+  }, [clearLoadingState]);
+
   useEffect(() => {
     const prev = prevUserRef.current;
     prevUserRef.current = user;
@@ -102,11 +118,9 @@ export default function App() {
       setActiveTools([]);
       setConversationId(null);
       setDismissedPromptKey(null);
-      setRequestStartedAt(null);
-      setNotifyOnFinish(false);
-      currentStreamControllerRef.current = null;
+      abortActiveStream();
     }
-  }, [user]);
+  }, [abortActiveStream, user]);
 
   const notifyRequestFinished = useCallback((title, body) => {
     if (
@@ -166,19 +180,19 @@ export default function App() {
       currentStreamControllerRef.current?.abort();
       currentStreamControllerRef.current = null;
       setMessages(loaded);
-      setStreamingText('');
-      setPendingItinerary(null);
-      setActiveTools([]);
-      setIsLoading(false);
-      setRequestStartedAt(null);
-      setNotifyOnFinish(false);
+      clearLoadingState();
     } catch (error) {
       console.error('Failed to recover conversation after app resume:', error);
     }
-  }, [conversationId, isLoading, token, user]);
+  }, [clearLoadingState, conversationId, isLoading, token, user]);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && !notifyOnFinish) {
+        abortActiveStream();
+        return;
+      }
+
       if (document.visibilityState === 'visible') {
         setTimeout(() => {
           if (scrollRef.current) {
@@ -190,7 +204,7 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [recoverConversationState]);
+  }, [abortActiveStream, notifyOnFinish, recoverConversationState]);
 
   useEffect(() => {
     if (!isLoading || !requestStartedAt) return undefined;
@@ -209,16 +223,11 @@ export default function App() {
   }, [messages, streamingText, pendingItinerary, scrollToBottom]);
 
   const handleNewChat = () => {
-    currentStreamControllerRef.current?.abort();
-    currentStreamControllerRef.current = null;
+    abortActiveStream();
     setMessages([]);
     setPendingItinerary(null);
-    setStreamingText('');
-    setActiveTools([]);
     setConversationId(null);
     setDismissedPromptKey(null);
-    setRequestStartedAt(null);
-    setNotifyOnFinish(false);
   };
 
   const handleDownloadPdf = useCallback((message) => {
@@ -227,6 +236,7 @@ export default function App() {
   }, []);
 
   const handleSelectConversation = async (convo) => {
+    abortActiveStream();
     setLoadingConvo(true);
     setConversationId(convo.id);
     setPendingItinerary(null);
@@ -250,6 +260,10 @@ export default function App() {
   };
 
   const handleSend = async (text) => {
+    if (isLoading || currentStreamControllerRef.current) {
+      return;
+    }
+
     const userMsg = { role: 'user', content: text };
     setMessages((prev) => [...prev, userMsg]);
     setIsLoading(true);
