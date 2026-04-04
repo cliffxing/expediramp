@@ -30,6 +30,21 @@ function isDailyItineraryPrompt(content = '') {
   );
 }
 
+// ── Returns true if the itinerary is a trip-level plan (flights/hotels/transit)
+function isTripItinerary(itinerary) {
+  if (!itinerary) return false;
+  return (itinerary.items || []).some(
+    (i) => i.type === 'flight' || i.type === 'hotel' || i.type === 'transit'
+  );
+}
+
+// ── Returns true if the itinerary is a daily activities plan (activities only)
+function isDailyItinerary(itinerary) {
+  if (!itinerary) return false;
+  const items = itinerary.items || [];
+  return items.length > 0 && items.every((i) => i.type === 'activity');
+}
+
 // ── FIX: self-dismisses on confirm to prevent double-send ──────────────────
 function DayItineraryPrompt({ onConfirm, onDismiss, disabled }) {
   const [sent, setSent] = React.useState(false);
@@ -453,9 +468,27 @@ export default function App() {
       }
     }
 
-    const latestItineraryMsg = [...messages]
+    // ── Dual itinerary context injection ──────────────────────────────────────
+    //
+    // Two separate itinerary types can coexist in the conversation:
+    //
+    //   TRIP itinerary  — flights, hotels, transit items
+    //                     → injected as [FULL_ITINERARY_JSON]
+    //
+    //   DAILY itinerary — activity-only items (the day-by-day plan)
+    //                     → injected as [FULL_DAILY_ITINERARY_JSON]
+    //
+    // Injecting both gives the agent the full picture it needs to independently
+    // modify either one without reconstructing the other from scratch.
+    // The system prompt rules tell it which tag to copy from and which tool to
+    // call depending on what the user is asking to change.
+    const latestTripItineraryMsg = [...messages]
       .reverse()
-      .find((m) => m.role === 'assistant' && m.itinerary);
+      .find((m) => m.role === 'assistant' && m.itinerary && isTripItinerary(m.itinerary));
+
+    const latestDailyItineraryMsg = [...messages]
+      .reverse()
+      .find((m) => m.role === 'assistant' && m.itinerary && isDailyItinerary(m.itinerary));
 
     function buildFlightSchedule(itin) {
       const flights = (itin.items || []).filter(i => i.type === 'flight');
@@ -493,9 +526,18 @@ export default function App() {
     }
 
     const history = messages.map((m) => {
-      const cleanContent = (m.content || '').replace(/\[FULL_ITINERARY_JSON:.*?\](?=\s|$)/gs, '').trimEnd();
+      // Strip any previously injected context blobs to avoid duplication
+      const cleanContent = (m.content || '')
+        .replace(/\[CURRENT_ITINERARY:.*?\](?=\s|$)/gs, '')
+        .replace(/\[FULL_ITINERARY_JSON:.*?\](?=\s|$)/gs, '')
+        .replace(/\[FULL_DAILY_ITINERARY_JSON:.*?\](?=\s|$)/gs, '')
+        .replace(/\[FLIGHT SCHEDULE[\s\S]*?(?=\[|$)/g, '')
+        .trimEnd();
 
-      if (m === latestItineraryMsg) {
+      let extraContext = '';
+
+      // ── Trip itinerary (flights/hotels/transit) ──────────────────────────
+      if (m === latestTripItineraryMsg) {
         const itin = m.itinerary;
         const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
 
@@ -520,7 +562,7 @@ export default function App() {
 
         const flightSchedule = buildFlightSchedule(itin);
 
-        const itineraryContext =
+        extraContext +=
           `\n\n[CURRENT_ITINERARY: ${itin.trip_title || 'Trip'} | ` +
           `${itin.start_date} to ${itin.end_date} | ` +
           `${itin.travelers || 1} traveler(s) | ` +
@@ -528,8 +570,15 @@ export default function App() {
           `Total: $${totalCost}]` +
           (flightSchedule ? `\n${flightSchedule}` : '') +
           `\n[FULL_ITINERARY_JSON: ${JSON.stringify(itin)}]`;
+      }
 
-        return { role: m.role, content: cleanContent + itineraryContext };
+      // ── Daily itinerary (activities) ─────────────────────────────────────
+      if (m === latestDailyItineraryMsg) {
+        extraContext += `\n[FULL_DAILY_ITINERARY_JSON: ${JSON.stringify(m.itinerary)}]`;
+      }
+
+      if (extraContext) {
+        return { role: m.role, content: cleanContent + extraContext };
       }
       return { role: m.role, content: cleanContent };
     });
