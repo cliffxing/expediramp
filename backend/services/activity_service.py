@@ -21,51 +21,85 @@ logger = logging.getLogger(__name__)
 # ── Fallback images by category (royalty-free Unsplash) ────────
 
 CATEGORY_IMAGES = {
-    "temple":     "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?w=600",
-    "shrine":     "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?w=600",
-    "museum":     "https://images.unsplash.com/photo-1566127444979-b3d2b654e3d7?w=600",
-    "park":       "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600",
-    "garden":     "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=600",
-    "market":     "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600",
-    "food":       "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600",
-    "restaurant": "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600",
-    "cafe":       "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600",
-    "beach":      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600",
-    "nightlife":  "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600",
-    "shopping":   "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600",
-    "landmark":   "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=600",
-    "nature":     "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600",
-    "adventure":  "https://images.unsplash.com/photo-1551632811-561732d1e306?w=600",
-    "historic":   "https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=600",
-    "art":        "https://images.unsplash.com/photo-1531243269054-5ebf6f34081e?w=600",
-    "tour":       "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=600",
+    "temple":        "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?w=600",
+    "shrine":        "https://images.unsplash.com/photo-1545569341-9eb8b30979d9?w=600",
+    "museum":        "https://images.unsplash.com/photo-1566127444979-b3d2b654e3d7?w=600",
+    "park":          "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?w=600",
+    "garden":        "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?w=600",
+    "market":        "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?w=600",
+    "food":          "https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600",
+    "restaurant":    "https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=600",
+    "cafe":          "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=600",
+    "beach":         "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=600",
+    "nightlife":     "https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=600",
+    "shopping":      "https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=600",
+    "landmark":      "https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=600",
+    "nature":        "https://images.unsplash.com/photo-1470071459604-3b5ec3a7fe05?w=600",
+    "adventure":     "https://images.unsplash.com/photo-1551632811-561732d1e306?w=600",
+    "historic":      "https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=600",
+    "art":           "https://images.unsplash.com/photo-1531243269054-5ebf6f34081e?w=600",
+    "tour":          "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=600",
     "neighbourhood": "https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=600",
-    "default":    "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600",
+    "default":       "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=600",
 }
 
 # ── Category detection keywords ────────────────────────────────
 
 CATEGORY_KEYWORDS = {
-    "temple":       ["temple", "pagoda", "wat ", "jinja", "buddhist"],
-    "shrine":       ["shrine", "torii", "shinto"],
-    "museum":       ["museum", "gallery", "exhibit", "collection"],
-    "park":         ["park", "garden", "botanical", "greenway"],
-    "garden":       ["garden", "botanical"],
-    "market":       ["market", "bazaar", "souk", "mercado", "night market", "street food"],
-    "food":         ["food tour", "cooking class", "ramen", "sushi", "culinary", "tasting"],
-    "restaurant":   ["restaurant", "bistro", "brasserie", "steakhouse", "pizzeria", "trattoria"],
-    "cafe":         ["café", "cafe", "coffee", "bakery", "patisserie", "boulangerie", "brunch"],
-    "beach":        ["beach", "coast", "surf", "snorkel", "dive", "seaside"],
-    "nightlife":    ["nightlife", "bar", "club", "pub crawl", "rooftop bar"],
-    "shopping":     ["shopping", "mall", "boutique", "outlet"],
-    "landmark":     ["tower", "bridge", "statue", "monument", "observation deck", "skyline"],
-    "nature":       ["hike", "trail", "mountain", "waterfall", "volcano", "canyon", "forest"],
-    "adventure":    ["adventure", "zip line", "kayak", "rafting", "bungee", "skydive"],
-    "historic":     ["castle", "palace", "fort", "ruins", "heritage", "historic", "old town"],
-    "art":          ["art", "street art", "mural", "installation", "contemporary"],
-    "tour":         ["tour", "walking tour", "guided", "day trip", "excursion"],
-    "neighbourhood":["neighbourhood", "neighborhood", "district", "quarter", "stroll", "explore"],
+    "temple":        ["temple", "pagoda", "wat ", "jinja", "buddhist"],
+    "shrine":        ["shrine", "torii", "shinto"],
+    "museum":        ["museum", "gallery", "exhibit", "collection"],
+    "park":          ["park", "garden", "botanical", "greenway"],
+    "garden":        ["garden", "botanical"],
+    "market":        ["market", "bazaar", "souk", "mercado", "night market", "street food"],
+    "food":          ["food tour", "cooking class", "ramen", "sushi", "culinary", "tasting"],
+    "restaurant":    ["restaurant", "bistro", "brasserie", "steakhouse", "pizzeria", "trattoria"],
+    "cafe":          ["café", "cafe", "coffee", "bakery", "patisserie", "boulangerie", "brunch"],
+    "beach":         ["beach", "coast", "surf", "snorkel", "dive", "seaside"],
+    "nightlife":     ["nightlife", "bar", "club", "pub crawl", "rooftop bar"],
+    "shopping":      ["shopping", "mall", "boutique", "outlet"],
+    "landmark":      ["tower", "bridge", "statue", "monument", "observation deck", "skyline"],
+    "nature":        ["hike", "trail", "mountain", "waterfall", "volcano", "canyon", "forest"],
+    "adventure":     ["adventure", "zip line", "kayak", "rafting", "bungee", "skydive"],
+    "historic":      ["castle", "palace", "fort", "ruins", "heritage", "historic", "old town"],
+    "art":           ["art", "street art", "mural", "installation", "contemporary"],
+    "tour":          ["tour", "walking tour", "guided", "day trip", "excursion"],
+    "neighbourhood": ["neighbourhood", "neighborhood", "district", "quarter", "stroll", "explore"],
 }
+
+# ── Subject words to append per category for image search ─────
+# These bias Google Images toward venue/food photos instead of
+# portraits of chefs, owners, or celebrity visitors.
+
+CATEGORY_SUBJECTS = {
+    "restaurant":    "interior food dishes dining",
+    "cafe":          "interior coffee food pastry",
+    "food":          "dishes food plate meal",
+    "bar":           "bar interior drinks cocktails",
+    "nightlife":     "bar interior night venue",
+    "market":        "stalls vendors food produce",
+    "museum":        "interior exhibits hall gallery",
+    "temple":        "exterior architecture building",
+    "shrine":        "exterior gate torii architecture",
+    "park":          "landscape garden greenery",
+    "garden":        "landscape flowers plants",
+    "beach":         "beach ocean waves shore",
+    "landmark":      "exterior architecture building",
+    "historic":      "exterior building architecture",
+    "art":           "artwork gallery exhibition",
+    "shopping":      "storefront interior retail",
+    "tour":          "landscape scenery view",
+    "nature":        "landscape scenery outdoor",
+    "adventure":     "outdoor scenery activity",
+    "neighbourhood": "street view buildings cityscape",
+}
+
+# Title words in SerpAPI image results that suggest a person photo
+_PERSON_TITLE_WORDS = frozenset([
+    "chef", "owner", "founder", "portrait", "headshot", "celebrity",
+    "actor", "actress", "singer", "model", "influencer", "blogger",
+    "author", "director", "ceo", "interview",
+])
 
 
 def _detect_category(name: str, description: str = "") -> str:
@@ -112,36 +146,53 @@ def _is_real_image_url(url: str) -> bool:
 
 def _fetch_place_image(name: str, city: str, category: str = "") -> str:
     """
-    Use SerpAPI Google Images to find a real photo of a specific place.
+    Use SerpAPI Google Images to find a real photo of a specific place/venue.
+
+    Key changes vs the previous version:
+    - Appends category-specific subject words (e.g. "interior food dishes") so
+      Google ranks venue/food photos above portraits of chefs or owners.
+    - Passes tbs=itp:photo to restrict results to real photographs only,
+      filtering out logos, illustrations, and icons.
+    - Skips any result whose SerpAPI title metadata contains person-related words
+      (chef, owner, portrait, etc.) as a lightweight post-filter.
+    - Increases num to 8 so there are more candidates to skip past if the first
+      few are still people shots.
+
     Returns image URL or empty string if nothing found.
     """
     if not Config.SERPAPI_KEY:
         return ""
     try:
-        # Append category to heavily bias the search toward the physical place/venue
-        # rather than a person (e.g., avoiding photos of chefs for eponymous restaurants).
-        query = f"{name} {city}"
-        if category and category not in query.lower():
-            query += f" {category}"
-
-            # Add negative keywords to explicitly filter out portraits and people
-            query += " -person -portrait -face"
+        # Build subject suffix that steers results toward the venue/food,
+        # not toward portraits of owners, chefs, or celebrity visitors.
+        subject = CATEGORY_SUBJECTS.get(category, "exterior interior venue")
+        query = f"{name} {city} {subject}"
 
         params = {
-            "engine": "google_images",
-            "q": query,
-            "num": 5,
-            "hl": "en",
-            "gl": "us",
+            "engine":  "google_images",
+            "q":       query,
+            "num":     8,
+            "hl":      "en",
+            "gl":      "us",
+            "tbs":     "itp:photo",   # photos only — filters out logos/illustrations
             "api_key": Config.SERPAPI_KEY,
         }
         resp = requests.get("https://serpapi.com/search.json", params=params, timeout=10)
         resp.raise_for_status()
         data = resp.json()
-        for img in data.get("images_results", [])[:5]:
+
+        for img in data.get("images_results", [])[:8]:
             url = img.get("original") or img.get("thumbnail") or ""
-            if _is_real_image_url(url):
-                return url
+            if not _is_real_image_url(url):
+                continue
+
+            # Skip images whose title metadata suggests a person photo
+            title_hint = (img.get("title") or "").lower()
+            if any(word in title_hint for word in _PERSON_TITLE_WORDS):
+                continue
+
+            return url
+
     except Exception as e:
         logger.debug("Place image search failed for %s: %s", name, e)
     return ""
