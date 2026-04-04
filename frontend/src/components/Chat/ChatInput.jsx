@@ -1,9 +1,23 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Loader2 } from 'lucide-react';
 
-export default function ChatInput({ onSend, disabled, placeholder }) {
+function useIsMobile(breakpoint = 640) {
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < breakpoint : false
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint - 1}px)`);
+    const handler = (e) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+export default function ChatInput({ onSend, disabled, placeholder, placeholderMobile }) {
   const [value, setValue] = useState('');
   const textareaRef = useRef(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -36,7 +50,7 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           disabled={disabled}
-          placeholder={placeholder || "Describe your dream trip…"}
+          placeholder={isMobile && placeholderMobile ? placeholderMobile : (placeholder || "Describe your dream trip…")}
           rows={1}
           className="flex-1 resize-none bg-transparent text-sm text-ramp-text
                      placeholder:text-ramp-text-tertiary outline-none py-1
@@ -45,28 +59,26 @@ export default function ChatInput({ onSend, disabled, placeholder }) {
         <button
           onClick={handleSubmit}
           disabled={disabled || !value.trim()}
-          className="flex-shrink-0 h-10 w-10 sm:w-auto sm:px-4 flex items-center justify-center gap-1.5
+          className="flex-shrink-0 h-9 w-9 sm:h-10 sm:w-auto sm:px-4 flex items-center justify-center gap-1.5
                      bg-ramp-yellow text-ramp-text text-xs font-semibold
                      hover:bg-ramp-yellow-hover active:scale-95 transition-all
                      disabled:opacity-40 disabled:cursor-not-allowed"
           aria-label="Send message"
         >
           {disabled ? (
-            <Loader2 size={15} className="animate-spin" />
+            <Loader2 size={14} className="animate-spin" />
           ) : (
             <>
-              <Send size={14} />
+              <Send size={13} />
               <span className="hidden sm:inline">Send</span>
             </>
           )}
         </button>
       </div>
-      <div className="px-4 pb-2.5">
-        <p className="text-2xs text-ramp-text-tertiary hidden sm:block">
+      {/* Desktop hint only — on mobile this row is hidden entirely to avoid the "jank" extra strip */}
+      <div className="hidden sm:block px-4 pb-2.5">
+        <p className="text-2xs text-ramp-text-tertiary">
           Enter to send · Shift+Enter for new line
-        </p>
-        <p className="text-2xs text-ramp-text-tertiary sm:hidden">
-          Tap send or press Enter
         </p>
       </div>
     </div>

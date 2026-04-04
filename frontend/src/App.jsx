@@ -327,21 +327,21 @@ export default function App() {
           itinerary: m.metadata?.itinerary || null,
         }));
 
-      if (loaded.length < messagesRef.current.length) return;
+        if (loaded.length < messagesRef.current.length) return;
 
         const latestLoaded = loaded[loaded.length - 1];
         const latestCurrent = messagesRef.current[messagesRef.current.length - 1];
-      const hasNewMessage = loaded.length > messagesRef.current.length && latestLoaded?.role === 'assistant';
-      const hasUpdatedAssistantReply =
-        loaded.length === messagesRef.current.length &&
-        latestLoaded?.role === 'assistant' &&
-        latestCurrent?.role === 'assistant' &&
-        (
-          latestCurrent.content !== latestLoaded.content ||
-          Boolean(latestLoaded.itinerary && !latestCurrent.itinerary)
-        );
+        const hasNewMessage = loaded.length > messagesRef.current.length && latestLoaded?.role === 'assistant';
+        const hasUpdatedAssistantReply =
+          loaded.length === messagesRef.current.length &&
+          latestLoaded?.role === 'assistant' &&
+          latestCurrent?.role === 'assistant' &&
+          (
+            latestCurrent.content !== latestLoaded.content ||
+            Boolean(latestLoaded.itinerary && !latestCurrent.itinerary)
+          );
 
-      if (!hasNewMessage && !hasUpdatedAssistantReply) return;
+        if (!hasNewMessage && !hasUpdatedAssistantReply) return;
 
         currentStreamControllerRef.current?.abort();
         currentStreamControllerRef.current = null;
@@ -737,6 +737,11 @@ export default function App() {
                 placeholder={
                   latestItinerary
                     ? "Refine your trip — e.g., 'I want a nicer hotel' or 'Avoid DXB layovers'"
+                    : "Describe your dream trip…"
+                }
+                placeholderMobile={
+                  latestItinerary
+                    ? "Refine your trip…"
                     : "Describe your dream trip…"
                 }
               />

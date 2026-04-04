@@ -40,16 +40,6 @@ export default function Header({ onNewChat, onShowAuth, onMobileSidebarOpen }) {
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="text-xs text-ramp-text-secondary hidden sm:inline truncate max-w-[160px]">{user.email}</span>
               <div className="h-4 w-px bg-ramp-border hidden sm:block" />
-              {/* New Trip — hidden on very small screens, accessible via sidebar */}
-              <button
-                onClick={onNewChat}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium
-                           bg-transparent border border-ramp-border text-ramp-text
-                           hover:bg-ramp-surface-alt transition-colors"
-              >
-                <Plus size={13} />
-                New Trip
-              </button>
               <button
                 onClick={logout}
                 className="w-8 h-8 flex items-center justify-center

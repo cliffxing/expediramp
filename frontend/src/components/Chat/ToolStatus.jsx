@@ -84,32 +84,28 @@ function DeepThinkingPanel({
 
   return (
     <div className="rounded-xl border border-ramp-border bg-ramp-surface px-3 py-3 shadow-sm animate-fade-in sm:px-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start gap-3">
-            <PulseBar />
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-ramp-text">Thinking deeply</p>
-              <p className="mt-0.5 text-xs leading-relaxed text-ramp-text-secondary">{detail}</p>
-            </div>
-          </div>
-          <p className="mt-2 text-2xs uppercase tracking-[0.18em] text-ramp-text-tertiary">
-            {seconds}s elapsed
-          </p>
-        </div>
-        <div className="flex w-full shrink-0 items-center sm:w-auto">
-          <button
-            type="button"
-            onClick={onToggleNotify}
-            className={`border px-3 py-1.5 text-xs font-medium transition-colors ${
-              notifyEnabled
-                ? 'border-ramp-yellow bg-ramp-yellow/15 text-ramp-text'
-                : 'border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary hover:bg-ramp-bg hover:text-ramp-text'
-            } w-full text-center sm:w-auto`}
-          >
-            {notifyLabel}
-          </button>
-        </div>
+      {/* Text block — no PulseBar here since tool rows below already show it */}
+      <div className="min-w-0">
+        <p className="text-sm font-semibold text-ramp-text">Thinking deeply</p>
+        <p className="mt-0.5 text-xs leading-relaxed text-ramp-text-secondary">{detail}</p>
+        <p className="mt-2 text-2xs uppercase tracking-[0.18em] text-ramp-text-tertiary">
+          {seconds}s elapsed
+        </p>
+      </div>
+
+      {/* Notify button — full-width below text on desktop, full-width on mobile too */}
+      <div className="mt-3">
+        <button
+          type="button"
+          onClick={onToggleNotify}
+          className={`border px-3 py-1.5 text-xs font-medium transition-colors w-full text-center ${
+            notifyEnabled
+              ? 'border-ramp-yellow bg-ramp-yellow/15 text-ramp-text'
+              : 'border-ramp-border bg-ramp-surface-alt text-ramp-text-secondary hover:bg-ramp-bg hover:text-ramp-text'
+          }`}
+        >
+          {notifyLabel}
+        </button>
       </div>
     </div>
   );
