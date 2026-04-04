@@ -635,7 +635,7 @@ export default function App() {
   const latestItinerary = [...messages].reverse().find((m) => m.itinerary)?.itinerary || null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden">
+    <div className="flex flex-col h-[100dvh] overflow-hidden">
       <Header
         onNewChat={handleNewChat}
         onShowAuth={() => setShowAuth(true)}
