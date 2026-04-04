@@ -4,14 +4,11 @@ import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import DemoGate from './components/DemoGate';
 import './index.css';
+import { ensureServiceWorker } from './notificationHelper';
 
-if ('serviceWorker' in navigator && window.isSecureContext) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((error) => {
-      console.error('Failed to register service worker for notifications:', error);
-    });
-  });
-}
+// Register + activate the SW early so it's ready when notifications fire.
+// ensureServiceWorker() handles secure-context checks internally.
+ensureServiceWorker();
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

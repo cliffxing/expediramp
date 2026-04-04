@@ -10,6 +10,7 @@ import AuthModal from './components/Auth/AuthModal';
 import { useAuth } from './context/AuthContext';
 import { sendMessageStream, createConversation, getConversationMessages } from './api/client';
 import { downloadItineraryPdf } from './lib/pdf';
+import { showNotification, requestPermission } from './notificationHelper';
 
 function SmartTimeline({ itinerary }) {
   if (!itinerary) return null;
@@ -172,6 +173,7 @@ export default function App() {
     }
   }, [abortActiveStream, user]);
 
+  // ── FIXED: cross-platform notification via notificationHelper ──────────────
   const notifyRequestFinished = useCallback((title, body) => {
     if (
       completionNotificationSentRef.current ||
@@ -185,36 +187,15 @@ export default function App() {
 
     completionNotificationSentRef.current = true;
 
-    const notificationOptions = {
-      body,
-      tag: 'expediramp-request-finished',
-      renotify: true,
-    };
-
-    (async () => {
-      try {
-        if ('serviceWorker' in navigator) {
-          const registration = await navigator.serviceWorker.ready;
-          if (registration?.showNotification) {
-            await registration.showNotification(title, notificationOptions);
-            return;
-          }
-        }
-
-        new Notification(title, notificationOptions);
-      } catch (error) {
-        try {
-          new Notification(title, { body });
-          return;
-        } catch (fallbackError) {
-          completionNotificationSentRef.current = false;
-          console.error('Failed to show completion notification:', error);
-          console.error('Fallback notification also failed:', fallbackError);
-        }
+    showNotification(title, body).then((sent) => {
+      if (!sent) {
+        completionNotificationSentRef.current = false;
+        console.warn('Notification could not be delivered on this platform.');
       }
-    })();
+    });
   }, []);
 
+  // ── FIXED: uses helper requestPermission for Safari callback-API compat ────
   const handleToggleNotifyOnFinish = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       return;
@@ -227,7 +208,7 @@ export default function App() {
       return;
     }
 
-    const permission = await Notification.requestPermission();
+    const permission = await requestPermission();
     notificationPermissionRef.current = permission;
     notifyOnFinishRef.current = permission === 'granted';
     setNotificationPermission(permission);
@@ -379,7 +360,8 @@ export default function App() {
         setMessages(loaded);
         clearLoadingState();
         notifyRequestFinished(
-          latestLoaded.itinerary ? 'Your trip is ready' : 'Expediramp finished thinking',
+          latestLoaded.itinerary ?
+            'Your trip is ready' : 'Expediramp finished thinking',
           latestLoaded.itinerary?.trip_title || 'Your latest travel response is ready.'
         );
       } catch (error) {
@@ -485,19 +467,6 @@ export default function App() {
     }
 
     // ── Dual itinerary context injection ──────────────────────────────────────
-    //
-    // Two separate itinerary types can coexist in the conversation:
-    //
-    //   TRIP itinerary  — flights, hotels, transit items
-    //                     → injected as [FULL_ITINERARY_JSON]
-    //
-    //   DAILY itinerary — activity-only items (the day-by-day plan)
-    //                     → injected as [FULL_DAILY_ITINERARY_JSON]
-    //
-    // Injecting both gives the agent the full picture it needs to independently
-    // modify either one without reconstructing the other from scratch.
-    // The system prompt rules tell it which tag to copy from and which tool to
-    // call depending on what the user is asking to change.
     const latestTripItineraryMsg = [...messages]
       .reverse()
       .find((m) => m.role === 'assistant' && m.itinerary && isTripItinerary(m.itinerary));
@@ -542,7 +511,6 @@ export default function App() {
     }
 
     const history = messages.map((m) => {
-      // Strip any previously injected context blobs to avoid duplication
       const cleanContent = (m.content || '')
         .replace(/\[CURRENT_ITINERARY:.*?\](?=\s|$)/gs, '')
         .replace(/\[FULL_ITINERARY_JSON:.*?\](?=\s|$)/gs, '')
@@ -552,7 +520,6 @@ export default function App() {
 
       let extraContext = '';
 
-      // ── Trip itinerary (flights/hotels/transit) ──────────────────────────
       if (m === latestTripItineraryMsg) {
         const itin = m.itinerary;
         const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
@@ -588,7 +555,6 @@ export default function App() {
           `\n[FULL_ITINERARY_JSON: ${JSON.stringify(itin)}]`;
       }
 
-      // ── Daily itinerary (activities) ─────────────────────────────────────
       if (m === latestDailyItineraryMsg) {
         extraContext += `\n[FULL_DAILY_ITINERARY_JSON: ${JSON.stringify(m.itinerary)}]`;
       }
@@ -771,7 +737,6 @@ export default function App() {
 
                   {isLoading && (
                     <div className="flex gap-3">
-                      {/* spacer hidden on mobile so ToolStatus left-aligns */}
                       <div className="flex-shrink-0 w-8 hidden sm:block" />
                       <ToolStatus
                         tools={activeTools}
