@@ -183,10 +183,6 @@ export default function App() {
       return;
     }
 
-    if (document.visibilityState === 'visible' && document.hasFocus()) {
-      return;
-    }
-
     try {
       completionNotificationSentRef.current = true;
       new Notification(title, {
