@@ -284,32 +284,41 @@ def _google_flights_url(
     return_date: str | None = None,
 ) -> str:
     """
-    Build a Google Flights search URL with a proper protobuf-encoded tfs parameter.
+    Build a Google Flights URL using the plain-text `q` query format.
     Supports both one-way and round-trip.
 
-    Returns a URL like:
-      https://www.google.com/travel/flights/search?tfs=CBwQAh...&hl=en&curr=USD
+    We intentionally prefer `q=` over the protobuf-style `tfs=` link here.
+    The encoded `tfs` links have become brittle and can sometimes open a
+    prefilled form that still requires the user to press Search manually.
+    The natural-language `q` format is less exact, but in practice it more
+    reliably lands directly on results for the chosen route and dates.
     """
-    if return_date:
-        tfs = _build_round_trip_tfs(origin, destination, date, return_date, passengers)
+    passenger_count = max(1, min(passengers, 9))
+    if passenger_count == 1:
+        traveler_phrase = "with one adult"
     else:
-        tfs = _build_one_way_tfs(origin, destination, date, passengers)
+        traveler_phrase = f"with {passenger_count} adults"
 
-    # Map cabin_class to Google Flights seat URL parameter
-    seat_param = {
-        "economy": "",          # default, no param needed
-        "premium_economy": "&tfc=PE",
-        "business": "&tfc=B",
-        "first": "&tfc=F",
-    }.get(cabin_class, "")
+    cabin_phrase = {
+        "economy": "economy class",
+        "premium_economy": "premium economy class",
+        "business": "business class",
+        "first": "first class",
+    }.get(cabin_class, "economy class")
+
+    trip_phrase = (
+        f"Flights to {destination.upper()} from {origin.upper()} on {date} through {return_date}"
+        if return_date
+        else f"Flights to {destination.upper()} from {origin.upper()} on {date} one way"
+    )
+
+    query = f"{trip_phrase} {traveler_phrase} {cabin_phrase}"
 
     return (
-        f"https://www.google.com/travel/flights/search"
-        f"?tfs={tfs}"
-        f"&tfu=EgIIAQ"    # standard flag (enables full search)
-        f"&hl=en"
-        f"&curr=USD"
-        f"{seat_param}"
+        "https://www.google.com/travel/flights"
+        f"?q={urllib.parse.quote(query)}"
+        "&hl=en"
+        "&curr=USD"
     )
 
 
