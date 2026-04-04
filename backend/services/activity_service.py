@@ -110,7 +110,7 @@ def _is_real_image_url(url: str) -> bool:
     return False
 
 
-def _fetch_place_image(name: str, city: str) -> str:
+def _fetch_place_image(name: str, city: str, category: str = "") -> str:
     """
     Use SerpAPI Google Images to find a real photo of a specific place.
     Returns image URL or empty string if nothing found.
@@ -118,9 +118,18 @@ def _fetch_place_image(name: str, city: str) -> str:
     if not Config.SERPAPI_KEY:
         return ""
     try:
+        # Append category to heavily bias the search toward the physical place/venue
+        # rather than a person (e.g., avoiding photos of chefs for eponymous restaurants).
+        query = f"{name} {city}"
+        if category and category not in query.lower():
+            query += f" {category}"
+
+            # Add negative keywords to explicitly filter out portraits and people
+            query += " -person -portrait -face"
+
         params = {
             "engine": "google_images",
-            "q": f"{name} {city}",
+            "q": query,
             "num": 5,
             "hl": "en",
             "gl": "us",
@@ -198,18 +207,19 @@ def _search_serpapi_activities(city: str, num_results: int = 5) -> list[dict]:
             continue
 
         description = sight.get("description", "").strip()
+        category = _detect_category(name, description)
+
         # Try thumbnail from the sight first, then fetch a dedicated image
         raw_thumb = sight.get("thumbnail") or sight.get("image") or ""
         if _is_real_image_url(raw_thumb):
             image_url = raw_thumb
         else:
             # Fetch a real photo of this specific place
-            image_url = _fetch_place_image(name, city)
+            image_url = _fetch_place_image(name, city, category)
             if not image_url:
-                image_url = _get_category_image(_detect_category(name, description))
+                image_url = _get_category_image(category)
 
         link = sight.get("link") or _build_maps_url(name, city)
-        category = _detect_category(name, description)
         cost = _parse_cost_from_text(description)
 
         results.append({
@@ -245,7 +255,7 @@ def _search_serpapi_activities(city: str, num_results: int = 5) -> list[dict]:
             for place in places:
                 if not any(r["name"].lower() == place["name"].lower() for r in results):
                     # Fetch a real image for extracted place names
-                    img = _fetch_place_image(place["name"], city)
+                    img = _fetch_place_image(place["name"], city, place.get("category", ""))
                     if img:
                         place["image_url"] = img
                     place["source"] = "serpapi"
