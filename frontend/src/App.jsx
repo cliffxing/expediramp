@@ -187,8 +187,6 @@ export default function App() {
 
     const notificationOptions = {
       body,
-      icon: '/favicon.svg',
-      badge: '/favicon.svg',
       tag: 'expediramp-request-finished',
       renotify: true,
     };
@@ -196,7 +194,7 @@ export default function App() {
     (async () => {
       try {
         if ('serviceWorker' in navigator) {
-          const registration = await navigator.serviceWorker.getRegistration();
+          const registration = await navigator.serviceWorker.ready;
           if (registration?.showNotification) {
             await registration.showNotification(title, notificationOptions);
             return;
@@ -205,8 +203,14 @@ export default function App() {
 
         new Notification(title, notificationOptions);
       } catch (error) {
-        completionNotificationSentRef.current = false;
-        console.error('Failed to show completion notification:', error);
+        try {
+          new Notification(title, { body });
+          return;
+        } catch (fallbackError) {
+          completionNotificationSentRef.current = false;
+          console.error('Failed to show completion notification:', error);
+          console.error('Fallback notification also failed:', fallbackError);
+        }
       }
     })();
   }, []);
