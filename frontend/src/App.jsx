@@ -198,6 +198,7 @@ export default function App() {
   // ── FIXED: uses helper requestPermission for Safari callback-API compat ────
   const handleToggleNotifyOnFinish = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('Notifications are not supported in this browser. On iOS, you may need to tap "Share" and "Add to Home Screen" first.');
       return;
     }
 
@@ -208,11 +209,20 @@ export default function App() {
       return;
     }
 
-    const permission = await requestPermission();
-    notificationPermissionRef.current = permission;
-    notifyOnFinishRef.current = permission === 'granted';
-    setNotificationPermission(permission);
-    setNotifyOnFinish(permission === 'granted');
+    try {
+      const permission = await requestPermission();
+      notificationPermissionRef.current = permission;
+      notifyOnFinishRef.current = permission === 'granted';
+      setNotificationPermission(permission);
+      setNotifyOnFinish(permission === 'granted');
+
+      if (permission !== 'granted') {
+        alert('Notification permission was denied. Please enable it in your browser settings.');
+      }
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      alert('There was an error requesting notification permissions.');
+    }
   }, []);
 
   const recoverConversationState = useCallback(async () => {
