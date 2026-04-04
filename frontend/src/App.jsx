@@ -183,16 +183,32 @@ export default function App() {
       return;
     }
 
-    try {
-      completionNotificationSentRef.current = true;
-      new Notification(title, {
-        body,
-        icon: '/favicon.svg',
-        badge: '/favicon.svg',
-      });
-    } catch (error) {
-      console.error('Failed to show completion notification:', error);
-    }
+    completionNotificationSentRef.current = true;
+
+    const notificationOptions = {
+      body,
+      icon: '/favicon.svg',
+      badge: '/favicon.svg',
+      tag: 'expediramp-request-finished',
+      renotify: true,
+    };
+
+    (async () => {
+      try {
+        if ('serviceWorker' in navigator) {
+          const registration = await navigator.serviceWorker.getRegistration();
+          if (registration?.showNotification) {
+            await registration.showNotification(title, notificationOptions);
+            return;
+          }
+        }
+
+        new Notification(title, notificationOptions);
+      } catch (error) {
+        completionNotificationSentRef.current = false;
+        console.error('Failed to show completion notification:', error);
+      }
+    })();
   }, []);
 
   const handleToggleNotifyOnFinish = useCallback(async () => {
