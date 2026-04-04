@@ -131,26 +131,51 @@ def chat_stream():
     def generate():
         full_reply = ""
         itinerary = None
+        done_sent = False
+
         try:
             for event in run_agent_streaming(messages):
                 if event["type"] == "token":
                     full_reply += event["data"]
                 elif event["type"] == "itinerary":
                     itinerary = event["data"]
+                elif event["type"] == "done":
+                    # Kick off persistence BEFORE yielding done so the
+                    # generator isn't blocked on I/O after the client
+                    # has already received everything it needs.
+                    if user and conversation_id and full_reply:
+                        _persistence_executor.submit(
+                            _persist_assistant_response,
+                            conversation_id,
+                            user["id"],
+                            full_reply,
+                            itinerary,
+                        )
+                    yield f"data: {json.dumps(event)}\n\n"
+                    done_sent = True
+                    # Yield a final newline to flush any proxy buffers
+                    yield ": end\n\n"
+                    return
+
                 yield f"data: {json.dumps(event)}\n\n"
+
         except Exception as exc:
             logger.exception("Streaming agent error")
             yield f"data: {json.dumps({'type': 'error', 'data': str(exc)})}\n\n"
 
-        # Persist after stream completes
-        if user and conversation_id and full_reply:
-            _persistence_executor.submit(
-                _persist_assistant_response,
-                conversation_id,
-                user["id"],
-                full_reply,
-                itinerary,
-            )
+        # Safety net: if run_agent_streaming finished without a done event
+        # (shouldn't happen, but guard anyway), send one now.
+        if not done_sent:
+            if user and conversation_id and full_reply:
+                _persistence_executor.submit(
+                    _persist_assistant_response,
+                    conversation_id,
+                    user["id"],
+                    full_reply,
+                    itinerary,
+                )
+            yield f"data: {json.dumps({'type': 'done', 'data': {}})}\n\n"
+            yield ": end\n\n"
 
     return Response(
         stream_with_context(generate()),
@@ -158,6 +183,8 @@ def chat_stream():
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
+            # Tell any proxy/CDN not to buffer this response
+            "Content-Type": "text/event-stream; charset=utf-8",
         },
     )
 
@@ -195,4 +222,3 @@ def conversation_messages(conversation_id):
         return jsonify({"error": "Authentication required"}), 401
     msgs = get_messages(conversation_id)
     return jsonify({"messages": msgs})
-

@@ -6,18 +6,17 @@ import ChatMessage from './components/Chat/ChatMessage';
 import ToolStatus from './components/Chat/ToolStatus';
 import WelcomeScreen from './components/Chat/WelcomeScreen';
 import ItineraryTimeline, { DailyItineraryTimeline } from './components/Timeline/ItineraryTimeline';
-
-function SmartTimeline({ itinerary }) {
-  if (!itinerary) return null;
-  // build_daily_itinerary items are all type="activity"
-  const isDaily = itinerary.items?.length > 0 && itinerary.items.every(i => i.type === 'activity');
-  if (isDaily) return <DailyItineraryTimeline itinerary={itinerary} />;
-  return <ItineraryTimeline itinerary={itinerary} />;
-}
 import AuthModal from './components/Auth/AuthModal';
 import { useAuth } from './context/AuthContext';
 import { sendMessageStream, createConversation, getConversationMessages } from './api/client';
 import { downloadItineraryPdf } from './lib/pdf';
+
+function SmartTimeline({ itinerary }) {
+  if (!itinerary) return null;
+  const isDaily = itinerary.items?.length > 0 && itinerary.items.every(i => i.type === 'activity');
+  if (isDaily) return <DailyItineraryTimeline itinerary={itinerary} />;
+  return <ItineraryTimeline itinerary={itinerary} />;
+}
 
 const DAILY_ITINERARY_CONFIRMATION =
   'Yes, build me a day-by-day itinerary with things to do each day.';
@@ -31,9 +30,21 @@ function isDailyItineraryPrompt(content = '') {
   );
 }
 
+// ── FIX: self-dismisses on confirm to prevent double-send ──────────────────
 function DayItineraryPrompt({ onConfirm, onDismiss, disabled }) {
+  const [sent, setSent] = React.useState(false);
+
+  const handleConfirm = () => {
+    if (sent || disabled) return;
+    setSent(true);
+    onDismiss(); // hide immediately so it cannot fire again
+    onConfirm();
+  };
+
+  if (sent) return null;
+
   return (
-    <div className="ml-11 mt-3">
+    <div className="mt-3">
       <div className="border border-ramp-border bg-ramp-surface-alt px-4 py-3 shadow-sm animate-slide-up">
         <p className="text-xs font-semibold text-ramp-text">
           Build your day-by-day itinerary?
@@ -44,8 +55,8 @@ function DayItineraryPrompt({ onConfirm, onDismiss, disabled }) {
         <div className="mt-2.5 flex items-center gap-2">
           <button
             type="button"
-            onClick={onConfirm}
-            disabled={disabled}
+            onClick={handleConfirm}
+            disabled={disabled || sent}
             className="inline-flex items-center justify-center px-3 py-1.5 text-xs font-semibold
                        bg-ramp-yellow text-ramp-text hover:bg-ramp-yellow-hover
                        transition-colors disabled:opacity-50"
@@ -83,6 +94,8 @@ export default function App() {
   const [notifyOnFinish, setNotifyOnFinish] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [elapsedNow, setElapsedNow] = useState(Date.now());
+  // ── mobile sidebar drawer ──────────────────────────────────────────────────
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'denied';
     return Notification.permission;
@@ -193,7 +206,7 @@ export default function App() {
   const recoverConversationState = useCallback(async () => {
     if (!user || !token || !conversationId) return;
 
-    const latestMessage = messages[messages.length - 1];
+    const latestMessage = messagesRef.current[messagesRef.current.length - 1];
     const streamLooksStale =
       currentStreamControllerRef.current &&
       lastStreamActivityAtRef.current > 0 &&
@@ -215,8 +228,21 @@ export default function App() {
         itinerary: m.metadata?.itinerary || null,
       }));
 
-      const hasAssistantReply = loaded.some((message) => message.role === 'assistant');
-      if (!hasAssistantReply) return;
+      if (loaded.length < messagesRef.current.length) return;
+
+      const latestLoaded = loaded[loaded.length - 1];
+      const latestCurrent = messagesRef.current[messagesRef.current.length - 1];
+      const hasNewMessage = loaded.length > messagesRef.current.length && latestLoaded?.role === 'assistant';
+      const hasUpdatedAssistantReply =
+        loaded.length === messagesRef.current.length &&
+        latestLoaded?.role === 'assistant' &&
+        latestCurrent?.role === 'assistant' &&
+        (
+          latestCurrent.content !== latestLoaded.content ||
+          Boolean(latestLoaded.itinerary && !latestCurrent.itinerary)
+        );
+
+      if (!hasNewMessage && !hasUpdatedAssistantReply) return;
 
       currentStreamControllerRef.current?.abort();
       currentStreamControllerRef.current = null;
@@ -225,7 +251,7 @@ export default function App() {
     } catch (error) {
       console.error('Failed to recover conversation after app resume:', error);
     }
-  }, [clearLoadingState, conversationId, isLoading, messages, streamingText, token, user]);
+  }, [clearLoadingState, conversationId, isLoading, streamingText, token, user]);
 
   useEffect(() => {
     const handleResume = () => {
@@ -239,11 +265,10 @@ export default function App() {
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && !notifyOnFinishRef.current) {
-        abortActiveStream();
-        return;
-      }
-
+      // ── FIX: never abort on hide ─────────────────────────────────────────
+      // On mobile, switching apps / locking screen fires visibilitychange →
+      // hidden constantly. The backend keeps processing; we recover the
+      // finished result when the user returns to the tab.
       if (document.visibilityState === 'visible') {
         handleResume();
       }
@@ -258,10 +283,10 @@ export default function App() {
       window.removeEventListener('focus', handleResume);
       window.removeEventListener('pageshow', handleResume);
     };
-  }, [abortActiveStream, recoverConversationState]);
+  }, [recoverConversationState]);
 
   useEffect(() => {
-    if (!isLoading || !conversationId || !user || !token || document.visibilityState !== 'visible') {
+    if (!isLoading || !conversationId || !user || !token) {
       return undefined;
     }
 
@@ -302,17 +327,21 @@ export default function App() {
           itinerary: m.metadata?.itinerary || null,
         }));
 
+      if (loaded.length < messagesRef.current.length) return;
+
         const latestLoaded = loaded[loaded.length - 1];
         const latestCurrent = messagesRef.current[messagesRef.current.length - 1];
-        const hasNewAssistantReply =
-          latestLoaded?.role === 'assistant' &&
-          (
-            latestCurrent?.role !== 'assistant' ||
-            latestCurrent?.content !== latestLoaded?.content ||
-            Boolean(latestLoaded?.itinerary && !latestCurrent?.itinerary)
-          );
+      const hasNewMessage = loaded.length > messagesRef.current.length && latestLoaded?.role === 'assistant';
+      const hasUpdatedAssistantReply =
+        loaded.length === messagesRef.current.length &&
+        latestLoaded?.role === 'assistant' &&
+        latestCurrent?.role === 'assistant' &&
+        (
+          latestCurrent.content !== latestLoaded.content ||
+          Boolean(latestLoaded.itinerary && !latestCurrent.itinerary)
+        );
 
-        if (!hasNewAssistantReply) return;
+      if (!hasNewMessage && !hasUpdatedAssistantReply) return;
 
         currentStreamControllerRef.current?.abort();
         currentStreamControllerRef.current = null;
@@ -391,6 +420,12 @@ export default function App() {
       return;
     }
 
+    // ── FIX: dedup — don't re-send if the last message is already this text ──
+    const lastMsg = messagesRef.current[messagesRef.current.length - 1];
+    if (lastMsg?.role === 'user' && lastMsg?.content === text) {
+      return;
+    }
+
     requestInFlightRef.current = true;
     notifyOnFinishRef.current = false;
     completionNotificationSentRef.current = false;
@@ -422,8 +457,6 @@ export default function App() {
       .reverse()
       .find((m) => m.role === 'assistant' && m.itinerary);
 
-    // Build a rich per-day schedule from flight items so the AI knows
-    // exactly which city the traveler is in at each point in time.
     function buildFlightSchedule(itin) {
       const flights = (itin.items || []).filter(i => i.type === 'flight');
       if (!flights.length) return '';
@@ -431,7 +464,6 @@ export default function App() {
       const lines = ['FLIGHT SCHEDULE (use this to constrain day-by-day activities):'];
       for (const f of flights) {
         const d = f.details || {};
-        // Extract first departure time and last arrival time from segments
         const getSegs = (segs) => Array.isArray(segs) ? segs : [];
         const isRT = d.is_round_trip || d.trip_type === 'round_trip';
 
@@ -461,15 +493,12 @@ export default function App() {
     }
 
     const history = messages.map((m) => {
-      // Strip any stale [FULL_ITINERARY_JSON] blocks that may have been injected
-      // in previous turns — we only ever want ONE copy in the context.
       const cleanContent = (m.content || '').replace(/\[FULL_ITINERARY_JSON:.*?\](?=\s|$)/gs, '').trimEnd();
 
       if (m === latestItineraryMsg) {
         const itin = m.itinerary;
         const totalCost = (itin.items || []).reduce((sum, i) => sum + (i.cost || 0), 0);
 
-        // Rich item summaries — flights include date + route, hotels include city + dates
         const itemSummaries = (itin.items || []).map((item) => {
           const d = item.details || {};
           if (item.type === 'flight') {
@@ -606,10 +635,14 @@ export default function App() {
   const latestItinerary = [...messages].reverse().find((m) => m.itinerary)?.itinerary || null;
 
   return (
-    <div className="flex flex-col h-screen">
-      <Header onNewChat={handleNewChat} onShowAuth={() => setShowAuth(true)} />
+    <div className="flex flex-col h-screen overflow-hidden">
+      <Header
+        onNewChat={handleNewChat}
+        onShowAuth={() => setShowAuth(true)}
+        onMobileSidebarOpen={() => setMobileSidebarOpen(true)}
+      />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden min-h-0">
         {user && (
           <Sidebar
             token={token}
@@ -617,12 +650,14 @@ export default function App() {
             refreshKey={sidebarRefreshKey}
             onSelect={handleSelectConversation}
             onNewChat={handleNewChat}
+            mobileOpen={mobileSidebarOpen}
+            onMobileClose={() => setMobileSidebarOpen(false)}
           />
         )}
 
-        <div className="flex flex-col flex-1 overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden min-w-0">
           <main ref={scrollRef} className="flex-1 overflow-y-auto">
-            <div className="max-w-3xl mx-auto px-4 py-6">
+            <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-6">
               {loadingConvo ? (
                 <div className="flex justify-center mt-20">
                   <div className="animate-spin w-6 h-6 border-2 border-ramp-accent border-t-transparent rounded-full" />
@@ -648,14 +683,12 @@ export default function App() {
                           onDownloadPdf={() => handleDownloadPdf(msg)}
                         />
 
-                        {/* Itinerary renders first so the prompt appears below it */}
                         {msg.itinerary && (
                           <div className="mt-4 mb-2">
                             <SmartTimeline itinerary={msg.itinerary} />
                           </div>
                         )}
 
-                        {/* Prompt appears AFTER the itinerary block */}
                         {showPrompt && (
                           <DayItineraryPrompt
                             disabled={isLoading}
@@ -673,7 +706,8 @@ export default function App() {
 
                   {isLoading && (
                     <div className="flex gap-3">
-                      <div className="flex-shrink-0 w-8" />
+                      {/* spacer hidden on mobile so ToolStatus left-aligns */}
+                      <div className="flex-shrink-0 w-8 hidden sm:block" />
                       <ToolStatus
                         tools={activeTools}
                         isLoading={isLoading}
@@ -695,8 +729,8 @@ export default function App() {
             </div>
           </main>
 
-          <div className="border-t border-ramp-border bg-ramp-bg">
-            <div className="max-w-3xl mx-auto px-4 py-4">
+          <div className="border-t border-ramp-border bg-ramp-bg flex-shrink-0">
+            <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4">
               <ChatInput
                 onSend={handleSend}
                 disabled={isLoading}
