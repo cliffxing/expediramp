@@ -110,7 +110,6 @@ export default function App() {
   const [notifyOnFinish, setNotifyOnFinish] = useState(false);
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [elapsedNow, setElapsedNow] = useState(Date.now());
-  // ── mobile sidebar drawer ──────────────────────────────────────────────────
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [notificationPermission, setNotificationPermission] = useState(() => {
     if (typeof window === 'undefined' || !('Notification' in window)) return 'denied';
@@ -125,8 +124,19 @@ export default function App() {
   const backgroundSyncInFlightRef = useRef(false);
   const completionNotificationSentRef = useRef(false);
   const lastStreamActivityAtRef = useRef(0);
-
   const prevUserRef = useRef(user);
+
+  // ── Background conversation cache ─────────────────────────────────────────
+  // Stores per-conversation state for conversations that have an active stream
+  // running in the background. Shape: Map<conversationId, { messages, streamingText,
+  // isLoading, activeTools, pendingItinerary, requestStartedAt, streamController,
+  // requestInFlight, dismissedPromptKey }>
+  const conversationCacheRef = useRef(new Map());
+
+  // ── Active stream conversation ID ref ─────────────────────────────────────
+  // Tracks which conversationId currently owns the stream, even when the user
+  // has navigated away from it.
+  const streamingConversationIdRef = useRef(null);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -169,11 +179,12 @@ export default function App() {
       setActiveTools([]);
       setConversationId(null);
       setDismissedPromptKey(null);
+      conversationCacheRef.current.clear();
+      streamingConversationIdRef.current = null;
       abortActiveStream();
     }
   }, [abortActiveStream, user]);
 
-  // ── FIXED: cross-platform notification via notificationHelper ──────────────
   const notifyRequestFinished = useCallback((title, body) => {
     if (
       completionNotificationSentRef.current ||
@@ -195,35 +206,27 @@ export default function App() {
     });
   }, []);
 
-  // ── FIXED: uses helper requestPermission for Safari callback-API compat ────
   const handleToggleNotifyOnFinish = useCallback(async () => {
     if (typeof window === 'undefined' || !('Notification' in window)) {
       alert('Notifications are not supported in this browser. On iOS, you may need to tap "Share" and "Add to Home Screen" first.');
       return;
     }
 
-    if (Notification.permission === 'granted') {
-      notifyOnFinishRef.current = !notifyOnFinishRef.current;
-      setNotifyOnFinish((prev) => !prev);
-      setNotificationPermission('granted');
-      return;
-    }
-
     try {
-      const permission = await requestPermission();
-      notificationPermissionRef.current = permission;
-      notifyOnFinishRef.current = permission === 'granted';
-      setNotificationPermission(permission);
-      setNotifyOnFinish(permission === 'granted');
-
-      if (permission !== 'granted') {
-        alert('Notification permission was denied. Please enable it in your browser settings.');
+      if (notificationPermission !== 'granted') {
+        const permission = await requestPermission();
+        setNotificationPermission(permission);
+        if (permission !== 'granted') {
+          alert('Notification permission was not granted. Please enable it in your browser settings.');
+          return;
+        }
       }
+      setNotifyOnFinish((prev) => !prev);
     } catch (error) {
       console.error('Error requesting notification permission:', error);
       alert('There was an error requesting notification permissions.');
     }
-  }, []);
+  }, [notificationPermission]);
 
   const recoverConversationState = useCallback(async () => {
     if (!user || !token || !conversationId) return;
@@ -287,10 +290,6 @@ export default function App() {
     };
 
     const handleVisibilityChange = () => {
-      // ── FIX: never abort on hide ─────────────────────────────────────────
-      // On mobile, switching apps / locking screen fires visibilitychange →
-      // hidden constantly. The backend keeps processing; we recover the
-      // finished result when the user returns to the tab.
       if (document.visibilityState === 'visible') {
         handleResume();
       }
@@ -370,8 +369,7 @@ export default function App() {
         setMessages(loaded);
         clearLoadingState();
         notifyRequestFinished(
-          latestLoaded.itinerary ?
-            'Your trip is ready' : 'Expediramp finished thinking',
+          latestLoaded.itinerary ? 'Your trip is ready' : 'Expediramp finished thinking',
           latestLoaded.itinerary?.trip_title || 'Your latest travel response is ready.'
         );
       } catch (error) {
@@ -402,11 +400,36 @@ export default function App() {
   }, [messages, streamingText, pendingItinerary, scrollToBottom]);
 
   const handleNewChat = () => {
-    abortActiveStream();
+    // If there's an active stream, save it to cache before clearing
+    if (streamingConversationIdRef.current && currentStreamControllerRef.current) {
+      conversationCacheRef.current.set(streamingConversationIdRef.current, {
+        messages: [...messagesRef.current],
+        streamingText,
+        isLoading,
+        activeTools,
+        pendingItinerary,
+        requestStartedAt,
+        streamController: currentStreamControllerRef.current,
+        requestInFlight: requestInFlightRef.current,
+        dismissedPromptKey,
+      });
+      // Don't abort — let it keep running in the background
+      currentStreamControllerRef.current = null;
+      requestInFlightRef.current = false;
+    } else {
+      abortActiveStream();
+    }
+
+    streamingConversationIdRef.current = null;
     setMessages([]);
     setPendingItinerary(null);
     setConversationId(null);
     setDismissedPromptKey(null);
+    setStreamingText('');
+    setActiveTools([]);
+    setIsLoading(false);
+    setRequestStartedAt(null);
+    setNotifyOnFinish(false);
   };
 
   const handleDownloadPdf = useCallback((message) => {
@@ -415,14 +438,78 @@ export default function App() {
   }, []);
 
   const handleSelectConversation = async (convo) => {
-    abortActiveStream();
+    // ── Step 1: save current in-progress state to cache (if there's an active stream) ──
+    const currentlyStreamingId = streamingConversationIdRef.current;
+    if (currentlyStreamingId && currentStreamControllerRef.current) {
+      conversationCacheRef.current.set(currentlyStreamingId, {
+        messages: [...messagesRef.current],
+        streamingText,
+        isLoading,
+        activeTools,
+        pendingItinerary,
+        requestStartedAt,
+        streamController: currentStreamControllerRef.current,
+        requestInFlight: requestInFlightRef.current,
+        dismissedPromptKey,
+      });
+      // Detach from UI state but do NOT abort — stream keeps running in background
+      currentStreamControllerRef.current = null;
+      requestInFlightRef.current = false;
+    } else if (conversationId && conversationId !== convo.id) {
+      // No active stream but save the settled messages so switching back is instant
+      conversationCacheRef.current.set(conversationId, {
+        messages: [...messagesRef.current],
+        streamingText: '',
+        isLoading: false,
+        activeTools: [],
+        pendingItinerary: null,
+        requestStartedAt: null,
+        streamController: null,
+        requestInFlight: false,
+        dismissedPromptKey,
+      });
+    }
+
+    // ── Step 2: check if the target conversation is already cached ──
+    const cached = conversationCacheRef.current.get(convo.id);
+    if (cached) {
+      // Restore all state from cache — no network fetch needed
+      setConversationId(convo.id);
+      setMessages(cached.messages);
+      setStreamingText(cached.streamingText || '');
+      setIsLoading(cached.isLoading || false);
+      setActiveTools(cached.activeTools || []);
+      setPendingItinerary(cached.pendingItinerary || null);
+      setRequestStartedAt(cached.requestStartedAt || null);
+      setDismissedPromptKey(cached.dismissedPromptKey || null);
+      setNotifyOnFinish(false);
+
+      // If there's a live stream controller in the cache, re-attach it
+      if (cached.streamController) {
+        currentStreamControllerRef.current = cached.streamController;
+        requestInFlightRef.current = cached.requestInFlight || false;
+        streamingConversationIdRef.current = convo.id;
+      } else {
+        streamingConversationIdRef.current = null;
+      }
+      return;
+    }
+
+    // ── Step 3: not cached — fetch from server ──
     setLoadingConvo(true);
     setConversationId(convo.id);
     setPendingItinerary(null);
     setMessages([]);
-    setDismissedPromptKey(null);
+    setStreamingText('');
+    setActiveTools([]);
+    setIsLoading(false);
     setRequestStartedAt(null);
+    setDismissedPromptKey(null);
     setNotifyOnFinish(false);
+    streamingConversationIdRef.current = null;
+    currentStreamControllerRef.current = null;
+    requestInFlightRef.current = false;
+
     try {
       const data = await getConversationMessages(token, convo.id);
       const loaded = (data.messages || []).map((m) => ({
@@ -475,6 +562,9 @@ export default function App() {
         console.error('Failed to create conversation:', e);
       }
     }
+
+    // Track which conversation owns this stream
+    streamingConversationIdRef.current = activeConvoId;
 
     // ── Dual itinerary context injection ──────────────────────────────────────
     const latestTripItineraryMsg = [...messages]
@@ -580,6 +670,9 @@ export default function App() {
     const streamController = new AbortController();
     currentStreamControllerRef.current = streamController;
 
+    // Capture which conversation this stream belongs to (for background update logic)
+    const thisStreamConvoId = activeConvoId;
+
     try {
       await sendMessageStream({
         message: text,
@@ -590,38 +683,109 @@ export default function App() {
         onToken: (tok) => {
           lastStreamActivityAtRef.current = Date.now();
           accumulatedText += tok;
-          setStreamingText(accumulatedText);
+          // Only update UI if this stream is still the active (visible) one
+          if (streamingConversationIdRef.current === thisStreamConvoId) {
+            setStreamingText(accumulatedText);
+          } else {
+            // Update the cache entry instead
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            if (cached) {
+              conversationCacheRef.current.set(thisStreamConvoId, {
+                ...cached,
+                streamingText: accumulatedText,
+              });
+            }
+          }
         },
         onToolStart: (data) => {
           lastStreamActivityAtRef.current = Date.now();
-          setActiveTools((prev) => [...prev, data.tool]);
+          if (streamingConversationIdRef.current === thisStreamConvoId) {
+            setActiveTools((prev) => [...prev, data.tool]);
+          } else {
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            if (cached) {
+              conversationCacheRef.current.set(thisStreamConvoId, {
+                ...cached,
+                activeTools: [...(cached.activeTools || []), data.tool],
+              });
+            }
+          }
         },
         onToolResult: (data) => {
           lastStreamActivityAtRef.current = Date.now();
-          setActiveTools((prev) => prev.filter((t) => t !== data.tool));
+          if (streamingConversationIdRef.current === thisStreamConvoId) {
+            setActiveTools((prev) => prev.filter((t) => t !== data.tool));
+          } else {
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            if (cached) {
+              conversationCacheRef.current.set(thisStreamConvoId, {
+                ...cached,
+                activeTools: (cached.activeTools || []).filter((t) => t !== data.tool),
+              });
+            }
+          }
         },
         onItinerary: (data) => {
           lastStreamActivityAtRef.current = Date.now();
           receivedItinerary = data;
-          setPendingItinerary(data);
-          setActiveTools([]);
+          if (streamingConversationIdRef.current === thisStreamConvoId) {
+            setPendingItinerary(data);
+            setActiveTools([]);
+          } else {
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            if (cached) {
+              conversationCacheRef.current.set(thisStreamConvoId, {
+                ...cached,
+                pendingItinerary: data,
+                activeTools: [],
+              });
+            }
+          }
         },
         onDone: () => {
           const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
           if (receivedItinerary) {
             assistantMsg.itinerary = receivedItinerary;
           }
-          if (accumulatedText.trim() || receivedItinerary) {
-            setMessages((prev) => [...prev, assistantMsg]);
+
+          const isVisibleConvo = streamingConversationIdRef.current === thisStreamConvoId;
+
+          if (isVisibleConvo) {
+            // Normal path — conversation is still on screen
+            if (accumulatedText.trim() || receivedItinerary) {
+              setMessages((prev) => [...prev, assistantMsg]);
+            }
+            setStreamingText('');
+            setActiveTools([]);
+            setPendingItinerary(null);
+            setIsLoading(false);
+            setRequestStartedAt(null);
+            setNotifyOnFinish(false);
+            currentStreamControllerRef.current = null;
+            streamingConversationIdRef.current = null;
+            requestInFlightRef.current = false;
+          } else {
+            // Conversation was switched away from — update cache with final state
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            const baseMessages = cached ? cached.messages : [];
+            const finalMessages = (accumulatedText.trim() || receivedItinerary)
+              ? [...baseMessages, assistantMsg]
+              : baseMessages;
+
+            conversationCacheRef.current.set(thisStreamConvoId, {
+              messages: finalMessages,
+              streamingText: '',
+              isLoading: false,
+              activeTools: [],
+              pendingItinerary: null,
+              requestStartedAt: null,
+              streamController: null,
+              requestInFlight: false,
+              dismissedPromptKey: cached?.dismissedPromptKey || null,
+            });
           }
-          setStreamingText('');
-          setActiveTools([]);
-          setPendingItinerary(null);
-          setIsLoading(false);
-          setRequestStartedAt(null);
-          setNotifyOnFinish(false);
+
           setSidebarRefreshKey((prev) => prev + 1);
-          currentStreamControllerRef.current = null;
           notifyRequestFinished(
             receivedItinerary ? 'Your trip is ready' : 'Expediramp finished thinking',
             receivedItinerary
@@ -630,18 +794,38 @@ export default function App() {
           );
         },
         onError: (err) => {
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: `Sorry, something went wrong: ${err}. Please try again.` },
-          ]);
-          setStreamingText('');
-          setActiveTools([]);
-          setPendingItinerary(null);
-          setIsLoading(false);
-          setRequestStartedAt(null);
-          setNotifyOnFinish(false);
+          const isVisibleConvo = streamingConversationIdRef.current === thisStreamConvoId;
+          if (isVisibleConvo) {
+            setMessages((prev) => [
+              ...prev,
+              { role: 'assistant', content: `Sorry, something went wrong: ${err}. Please try again.` },
+            ]);
+            setStreamingText('');
+            setActiveTools([]);
+            setPendingItinerary(null);
+            setIsLoading(false);
+            setRequestStartedAt(null);
+            setNotifyOnFinish(false);
+            streamingConversationIdRef.current = null;
+          } else {
+            // Clear error state from cache
+            const cached = conversationCacheRef.current.get(thisStreamConvoId);
+            if (cached) {
+              conversationCacheRef.current.set(thisStreamConvoId, {
+                ...cached,
+                streamingText: '',
+                isLoading: false,
+                activeTools: [],
+                pendingItinerary: null,
+                requestStartedAt: null,
+                streamController: null,
+                requestInFlight: false,
+              });
+            }
+          }
           setSidebarRefreshKey((prev) => prev + 1);
           currentStreamControllerRef.current = null;
+          requestInFlightRef.current = false;
           notifyRequestFinished('Trip planning stopped', 'Expediramp ran into an error on your latest request.');
         },
       });
@@ -649,7 +833,8 @@ export default function App() {
       if (e?.name === 'AbortError') {
         return;
       }
-      if (isLoading) {
+      const isVisibleConvo = streamingConversationIdRef.current === thisStreamConvoId;
+      if (isVisibleConvo && isLoading) {
         if (accumulatedText.trim() || receivedItinerary) {
           const assistantMsg = { role: 'assistant', content: accumulatedText || '' };
           if (receivedItinerary) assistantMsg.itinerary = receivedItinerary;
@@ -665,15 +850,20 @@ export default function App() {
         setIsLoading(false);
         setRequestStartedAt(null);
         setNotifyOnFinish(false);
-        setSidebarRefreshKey((prev) => prev + 1);
-        currentStreamControllerRef.current = null;
-        notifyRequestFinished('Trip planning stopped', 'Expediramp could not finish your latest request.');
+        streamingConversationIdRef.current = null;
       }
+      setSidebarRefreshKey((prev) => prev + 1);
+      currentStreamControllerRef.current = null;
+      requestInFlightRef.current = false;
+      notifyRequestFinished('Trip planning stopped', 'Expediramp could not finish your latest request.');
     }
   };
 
   const hasMessages = messages.length > 0 || streamingText || pendingItinerary;
-  const latestItinerary = [...messages].reverse().find((m) => m.itinerary)?.itinerary || null;
+
+  // Whether the currently-viewed conversation has a stream running (for ChatInput disable logic)
+  const activeConvoIsStreaming =
+    isLoading && streamingConversationIdRef.current === conversationId;
 
   return (
     <div className="flex flex-col h-[100dvh] overflow-hidden">
@@ -732,7 +922,7 @@ export default function App() {
 
                         {showPrompt && (
                           <DayItineraryPrompt
-                            disabled={isLoading}
+                            disabled={activeConvoIsStreaming}
                             onConfirm={() => handleSend(DAILY_ITINERARY_CONFIRMATION)}
                             onDismiss={() => setDismissedPromptKey(`${idx}:${msg.content}`)}
                           />
@@ -742,15 +932,15 @@ export default function App() {
                   })}
 
                   {streamingText && (
-                    <ChatMessage role="assistant" content={streamingText} isStreaming={isLoading} />
+                    <ChatMessage role="assistant" content={streamingText} isStreaming={activeConvoIsStreaming} />
                   )}
 
-                  {isLoading && (
+                  {activeConvoIsStreaming && (
                     <div className="flex gap-3">
                       <div className="flex-shrink-0 w-8 hidden sm:block" />
                       <ToolStatus
                         tools={activeTools}
-                        isLoading={isLoading}
+                        isLoading={activeConvoIsStreaming}
                         elapsedMs={requestStartedAt ? elapsedNow - requestStartedAt : 0}
                         notifyEnabled={notifyOnFinish}
                         notificationPermission={notificationPermission}
@@ -758,32 +948,24 @@ export default function App() {
                       />
                     </div>
                   )}
-
-                  {pendingItinerary && (
-                    <div className="mt-4 mb-2">
-                      <SmartTimeline itinerary={pendingItinerary} />
-                    </div>
-                  )}
                 </div>
               )}
             </div>
           </main>
 
-          <div className="border-t border-ramp-border bg-ramp-bg flex-shrink-0">
-            <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4">
+          <div className="border-t border-ramp-border bg-ramp-bg px-3 sm:px-4 py-3">
+            <div className="max-w-3xl mx-auto">
+              {/* Show a read-only banner when viewing a different conversation while one is loading */}
+              {isLoading && !activeConvoIsStreaming && (
+                <div className="mb-2 flex items-center gap-2 px-3 py-2 bg-ramp-surface border border-ramp-border text-xs text-ramp-text-secondary">
+                  <div className="w-1.5 h-1.5 rounded-full bg-ramp-yellow animate-pulse flex-shrink-0" />
+                  A trip is still being planned in another conversation. Switch back to continue.
+                </div>
+              )}
               <ChatInput
                 onSend={handleSend}
-                disabled={isLoading}
-                placeholder={
-                  latestItinerary
-                    ? "Refine your trip — e.g., 'I want a nicer hotel' or 'Avoid DXB layovers'"
-                    : "Describe your dream trip…"
-                }
-                placeholderMobile={
-                  latestItinerary
-                    ? "Refine your trip…"
-                    : "Describe your dream trip…"
-                }
+                disabled={activeConvoIsStreaming}
+                isLoading={activeConvoIsStreaming}
               />
             </div>
           </div>
